@@ -26,11 +26,15 @@ export interface TelegramChannelInfo {
 export function cleanChannelHandle(input: string): string {
   if (!input) return '';
   let cleaned = input.trim();
-  // Remove t.me links
-  cleaned = cleaned.replace(/^https?:\/\/(www\.)?t\.me\/(s\/)?/, '');
-  // Remove @ prefix
+  // Remove protocol
+  cleaned = cleaned.replace(/^https?:\/\//i, '');
+  // Remove t.me/s/ or t.me/ or telegram.me/
+  cleaned = cleaned.replace(/^(www\.)?(t|telegram)\.me\/(s\/)?/i, '');
+  // Remove tg://resolve?domain=
+  cleaned = cleaned.replace(/^tg:\/\/resolve\?domain=/i, '');
+  // Remove leading @
   cleaned = cleaned.replace(/^@/, '');
-  // Remove query parameters or trailing slashes
+  // Remove trailing slashes, query params
   cleaned = cleaned.split('/')[0].split('?')[0].trim();
   return cleaned;
 }
@@ -79,7 +83,7 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     if (rawTitle) channelName = rawTitle;
   }
 
-  let channelBio = `Telegram @${handle} 官方频道图集精选`;
+  let channelBio = `@${handle} 频道的图像动态`;
   const bioMatch = html.match(/<div class="tgme_channel_info_description"[^>]*>([\s\S]*?)<\/div>/i) ||
                    html.match(/<div class="tgme_page_description"[^>]*>([\s\S]*?)<\/div>/i);
   if (bioMatch) {
@@ -107,14 +111,25 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
   for (let i = 1; i < messageBlocks.length; i++) {
     const block = messageBlocks[i];
+    // Unescape &quot; for clean url matching
+    const cleanBlock = block.replace(/&quot;/g, '"');
 
-    // Find all photo background images in this message
-    const photoRegex = /style="[^"]*background-image:\s*url\(['"]?(https:\/\/[^'"]+)['"]?\)/gi;
-    let photoMatch;
     const imageUrls: string[] = [];
 
-    while ((photoMatch = photoRegex.exec(block)) !== null) {
-      const url = photoMatch[1];
+    // Pattern 1: background-image:url(...) or url('...') or url("...")
+    const bgRegex = /background-image:\s*url\(['"]?(https:\/\/[^'"\)\s]+)['"]?\)/gi;
+    let match;
+    while ((match = bgRegex.exec(cleanBlock)) !== null) {
+      const url = match[1];
+      if (url && !imageUrls.includes(url)) {
+        imageUrls.push(url);
+      }
+    }
+
+    // Pattern 2: Direct CDN links to images (telesco.pe or telegram-cdn)
+    const cdnRegex = /(https:\/\/(?:cdn\d*\.telesco\.pe|cdn\d*\.telegram-cdn\.org|telegram\.org)\/file\/[^"'\s\)]+)/gi;
+    while ((match = cdnRegex.exec(cleanBlock)) !== null) {
+      const url = match[1];
       if (url && !imageUrls.includes(url)) {
         imageUrls.push(url);
       }
@@ -123,12 +138,12 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     if (imageUrls.length === 0) continue;
 
     // Post link / Message ID
-    const msgIdMatch = block.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || block.match(/data-post="[^\/]+\/(\d+)"/i);
+    const msgIdMatch = cleanBlock.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || cleanBlock.match(/data-post="[^\/]+\/(\d+)"/i);
     const messageId = msgIdMatch ? msgIdMatch[1] : `${Date.now()}-${i}`;
     const telegramUrl = `https://t.me/${handle}/${messageId}`;
 
     // Caption
-    const captionMatch = block.match(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const captionMatch = cleanBlock.match(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
     const rawCaption = captionMatch ? stripHtml(captionMatch[1]) : '';
 
     // Extract tags (#tag)
@@ -136,26 +151,26 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     const tags = tagMatches.map(t => t.replace('#', '')).filter(Boolean);
     if (tags.length === 0) tags.push('Telegram', 'Channel');
 
-    // Album recommendation from primary tag or fallback
-    let album = tags[0] || '频道精选';
-    if (album.length > 10) album = '频道精选';
+    // Album recommendation
+    let album = tags[0] || '频道图片';
+    if (album.length > 10) album = '频道图片';
 
     // Views
-    const viewsMatch = block.match(/<span class="tgme_widget_message_views">([^<]+)<\/span>/i);
+    const viewsMatch = cleanBlock.match(/<span class="tgme_widget_message_views">([^<]+)<\/span>/i);
     const viewsStr = viewsMatch ? viewsMatch[1] : '';
     const views = parseViews(viewsStr);
 
     // Date
-    const dateMatch = block.match(/<time datetime="([^"]+)"/i);
+    const dateMatch = cleanBlock.match(/<time datetime="([^"]+)"/i);
     let date = new Date().toISOString().split('T')[0];
     if (dateMatch && dateMatch[1]) {
       date = dateMatch[1].split('T')[0];
     }
 
-    // Process title & description
+    // Title & description
     const lines = rawCaption.split('\n').filter(l => l.trim().length > 0);
-    const title = lines[0] ? lines[0].slice(0, 40) : `Telegram 频道精选图片 #${messageId}`;
-    const description = rawCaption || `来自 Telegram @${handle} 频道的精彩发布`;
+    const title = lines[0] ? lines[0].slice(0, 40) : `Telegram 频道图片 #${messageId}`;
+    const description = rawCaption || `来自 Telegram @${handle} 频道的图文动态`;
 
     // Add each photo found in message
     imageUrls.forEach((imgUrl, imgIdx) => {
