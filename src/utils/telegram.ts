@@ -70,7 +70,12 @@ function parseViews(viewsStr: string): number {
 export function formatImageUrl(url: string): string {
   if (!url) return '';
   if (url.startsWith('/api/proxy-image')) return url;
-  if (url.includes('telesco.pe') || url.includes('telegram-cdn.org') || url.includes('telegram.org')) {
+  if (
+    url.includes('telesco.pe') ||
+    url.includes('telegram-cdn.org') ||
+    url.includes('telegram.org') ||
+    url.includes('t.me')
+  ) {
     return `/api/proxy-image?url=${encodeURIComponent(url)}`;
   }
   return url;

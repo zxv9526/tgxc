@@ -185,7 +185,7 @@ app.post('/api/photos', (req, res) => {
     return res.status(400).json({ error: 'Title and URL are required' });
   }
 
-  const newPhoto: ChannelPhoto = {
+  const newPhoto: TelegramPhoto = {
     id: `photo-${Date.now()}`,
     title,
     description: description || '频道新增相册图片',
@@ -196,9 +196,7 @@ app.post('/api/photos', (req, res) => {
     views: 12,
     author: 'Channel Admin',
     date: new Date().toISOString().split('T')[0],
-    aspectRatio: aspectRatio || '16:9',
-    cameraOrInfo: cameraOrInfo || 'Uploaded Photo',
-    resolution: '1920 x 1080'
+    aspectRatio: aspectRatio || '16:9'
   };
 
   channelPhotos.unshift(newPhoto);
