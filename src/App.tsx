@@ -233,16 +233,33 @@ export default function App() {
   const fetchConfig = useCallback(async () => {
     try {
       const res = await fetch('/api/config');
-      if (res.ok) {
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
         const data = await res.json();
         setConfig(prev => ({ ...prev, ...data }));
         setEditChannelName(data.channelName || '');
         setEditChannelBio(data.channelBio || '');
         setEditBannerUrl(data.bannerUrl || '');
         setEditAvatarUrl(data.avatarUrl || '');
+        return;
       }
     } catch (err) {
-      console.error('Failed to fetch config:', err);
+      console.warn('Backend config endpoint unavailable:', err);
+    }
+
+    // Fallback to localStorage or default config
+    try {
+      const savedConfig = localStorage.getItem('channel_config');
+      if (savedConfig) {
+        const data = JSON.parse(savedConfig);
+        setConfig(prev => ({ ...prev, ...data }));
+        setEditChannelName(data.channelName || '');
+        setEditChannelBio(data.channelBio || '');
+        setEditBannerUrl(data.bannerUrl || '');
+        setEditAvatarUrl(data.avatarUrl || '');
+      }
+    } catch (e) {
+      console.error('Failed to load local config', e);
     }
   }, []);
 
@@ -257,14 +274,29 @@ export default function App() {
       if (sortBy) params.append('sort', sortBy);
 
       const res = await fetch(`/api/photos?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to load channel photos');
-      const data = await res.json();
-      setPhotos(data.photos || []);
-      setAlbums(data.albums || ['All']);
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
+        const data = await res.json();
+        setPhotos(data.photos || []);
+        setAlbums(data.albums || ['All']);
+        setIsLoading(false);
+        return;
+      }
     } catch (err: any) {
       console.warn('Backend API unavailable, using fallback client state:', err);
-      // Fallback local filtering for GitHub Pages static hosting
-      let filtered = [...FALLBACK_PHOTOS];
+    }
+
+    // Fallback local filtering for GitHub Pages static hosting
+    try {
+      let localData: ChannelPhoto[] = [];
+      const stored = localStorage.getItem('channel_photos');
+      if (stored) {
+        localData = JSON.parse(stored);
+      } else {
+        localData = [...FALLBACK_PHOTOS];
+      }
+
+      let filtered = [...localData];
       if (selectedAlbum !== 'All') {
         filtered = filtered.filter(p => p.album === selectedAlbum);
       }
@@ -284,7 +316,10 @@ export default function App() {
       else filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       setPhotos(filtered);
-      setAlbums(['All', ...Array.from(new Set(FALLBACK_PHOTOS.map(p => p.album)))]);
+      setAlbums(['All', ...Array.from(new Set(localData.map(p => p.album)))]);
+    } catch (e) {
+      console.error('Error in fallback photos handler:', e);
+      setPhotos(FALLBACK_PHOTOS);
     } finally {
       setIsLoading(false);
     }
@@ -330,13 +365,28 @@ export default function App() {
     if (e) e.stopPropagation();
     try {
       const res = await fetch(`/api/photos/${photoId}/like`, { method: 'POST' });
-      if (res.ok) {
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
         const data = await res.json();
         setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, likes: data.likes } : p));
+        return;
       }
     } catch (err) {
-      console.error('Failed to like photo:', err);
+      console.warn('Like photo server call failed, updating local state:', err);
     }
+
+    setPhotos(prev => {
+      const next = prev.map(p => p.id === photoId ? { ...p, likes: p.likes + 1 } : p);
+      try {
+        const stored = localStorage.getItem('channel_photos');
+        if (stored) {
+          const list: ChannelPhoto[] = JSON.parse(stored);
+          const updatedList = list.map(p => p.id === photoId ? { ...p, likes: p.likes + 1 } : p);
+          localStorage.setItem('channel_photos', JSON.stringify(updatedList));
+        }
+      } catch (e) {}
+      return next;
+    });
   };
 
   // Open Lightbox
@@ -354,61 +404,84 @@ export default function App() {
     e.preventDefault();
     if (!formTitle.trim() || !formUrl.trim()) return;
 
+    const newPhoto: ChannelPhoto = {
+      id: `photo-${Date.now()}`,
+      title: formTitle,
+      description: formDesc || '频道新增相册图片',
+      url: formUrl,
+      album: formAlbum || '风光摄影',
+      tags: formTags.split(',').map(t => t.trim()).filter(Boolean),
+      likes: 1,
+      views: 12,
+      author: 'Channel Admin',
+      date: new Date().toISOString().split('T')[0],
+      aspectRatio: '16:9',
+      cameraOrInfo: formCamera || 'Uploaded Photo',
+      resolution: '1920 x 1080'
+    };
+
     try {
       const res = await fetch('/api/photos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: formTitle,
-          description: formDesc,
-          url: formUrl,
-          album: formAlbum,
-          tags: formTags.split(',').map(t => t.trim()).filter(Boolean),
-          cameraOrInfo: formCamera,
-          aspectRatio: '16:9'
-        })
+        body: JSON.stringify(newPhoto)
       });
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
+        setShowAddModal(false);
+        setFormTitle(''); setFormDesc(''); setFormUrl(''); setFormTags(''); setFormCamera('');
+        fetchPhotos();
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend photo creation failed, storing in localStorage:', err);
+    }
 
-      if (!res.ok) throw new Error('Failed to create photo');
+    try {
+      const stored = localStorage.getItem('channel_photos');
+      const list: ChannelPhoto[] = stored ? JSON.parse(stored) : [...FALLBACK_PHOTOS];
+      list.unshift(newPhoto);
+      localStorage.setItem('channel_photos', JSON.stringify(list));
       setShowAddModal(false);
-      // Reset form
-      setFormTitle('');
-      setFormDesc('');
-      setFormUrl('');
-      setFormTags('');
-      setFormCamera('');
+      setFormTitle(''); setFormDesc(''); setFormUrl(''); setFormTags(''); setFormCamera('');
       fetchPhotos();
-    } catch (err: any) {
-      alert(err.message || 'Failed to add photo');
+    } catch (err) {
+      alert('保存图片失败');
     }
   };
 
   // Save Channel Settings
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    const updated = {
+      channelName: editChannelName,
+      channelBio: editChannelBio,
+      bannerUrl: editBannerUrl,
+      avatarUrl: editAvatarUrl
+    };
+
     try {
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelName: editChannelName,
-          channelBio: editChannelBio,
-          bannerUrl: editBannerUrl,
-          avatarUrl: editAvatarUrl
-        })
+        body: JSON.stringify(updated)
       });
-      if (res.ok) {
-        setConfig(prev => ({
-          ...prev,
-          channelName: editChannelName,
-          channelBio: editChannelBio,
-          bannerUrl: editBannerUrl,
-          avatarUrl: editAvatarUrl
-        }));
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
+        setConfig(prev => ({ ...prev, ...updated }));
         setShowSettingsModal(false);
+        return;
       }
     } catch (err) {
-      alert('Failed to update channel settings');
+      console.warn('Backend config update failed, storing locally:', err);
+    }
+
+    try {
+      localStorage.setItem('channel_config', JSON.stringify(updated));
+      setConfig(prev => ({ ...prev, ...updated }));
+      setShowSettingsModal(false);
+    } catch (err) {
+      alert('保存设置失败');
     }
   };
 
