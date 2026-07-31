@@ -110,7 +110,13 @@ app.get('/api/proxy-image', async (req, res) => {
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (req.query.download === '1' || req.query.download === 'true') {
+      const filename = (req.query.filename as string) || `photo-${Date.now()}.jpg`;
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    }
 
     const arrayBuffer = await response.arrayBuffer();
     res.send(Buffer.from(arrayBuffer));
