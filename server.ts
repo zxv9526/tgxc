@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { parseTelegramWebHtml, cleanChannelHandle, TelegramPhoto } from './src/utils/telegram.js';
 
 dotenv.config();
 
@@ -11,158 +12,96 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
-// --- Channel Photo Gallery Data & Endpoints ---
-
-interface ChannelPhoto {
-  id: string;
-  title: string;
-  description: string;
-  url: string;
-  album: string;
-  tags: string[];
-  likes: number;
-  views: number;
-  author: string;
-  date: string;
-  aspectRatio: string;
-  cameraOrInfo?: string;
-  resolution?: string;
-}
+// Target TG Channel Handle from Env
+const initialChannelHandle = cleanChannelHandle(
+  process.env.TELEGRAM_CHANNEL || process.env.TG_CHANNEL || process.env.CHANNEL_NAME || 'sphotographs'
+);
 
 let channelConfig = {
-  channelName: process.env.CHANNEL_NAME || 'AI Creator Studio Channel',
-  channelBio: '官方频道图集与精选摄影相册库。支持相册分类、多重过滤、幻灯片巡览与相册管理。',
+  channelName: process.env.CHANNEL_NAME || 'Telegram 官方频道图集',
+  channelBio: 'Telegram 官方频道图集与精选摄影相册库。支持分类筛选、极速巡览与自动同步。',
   bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
   avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop',
-  totalMembers: 12450,
+  totalMembers: '12,450 关注',
+  handle: initialChannelHandle
 };
 
-let channelPhotos: ChannelPhoto[] = [
-  {
-    id: 'photo-1',
-    title: '赛博朋克霓虹城市夜景',
-    description: '频道视觉精选：高耸的摩天大楼与绚丽霓虹灯交相辉映的光影世界。',
-    url: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?q=80&w=1200&auto=format&fit=crop',
-    album: '视觉艺术',
-    tags: ['Cyberpunk', 'Neon', 'Cityscape', 'Night'],
-    likes: 342,
-    views: 1890,
-    author: 'Channel Admin',
-    date: '2026-07-28',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Sony A7S III, 35mm f/1.4',
-    resolution: '3840 x 2160'
-  },
-  {
-    id: 'photo-2',
-    title: '晨雾中的高山湖泊',
-    description: '频道社群摄影采风作品：阳光透射晨雾印照在澄澈如镜的水面上。',
-    url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=1200&auto=format&fit=crop',
-    album: '风光摄影',
-    tags: ['Nature', 'Mountain', 'Lake', 'Landscape'],
-    likes: 512,
-    views: 3100,
-    author: 'Elena Vance',
-    date: '2026-07-25',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Sony A7R IV, 24mm f/2.8, ISO 100',
-    resolution: '4000 x 2250'
-  },
-  {
-    id: 'photo-3',
-    title: '极简流体抽象艺术',
-    description: '用于频道视频背景与UI界面的高分辨率极简梦幻流体渐变。',
-    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop',
-    album: '壁纸素材',
-    tags: ['Abstract', 'Gradient', 'Minimalist', 'Wallpaper'],
-    likes: 289,
-    views: 1420,
-    author: 'Design Studio',
-    date: '2026-07-20',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Digital Motion Graphics Design',
-    resolution: '3840 x 2160'
-  },
-  {
-    id: 'photo-4',
-    title: '频道开发者线下 Meetup 记录',
-    description: '年度频道创作者交流大会现场照片，氛围融洽，激发无限灵感。',
-    url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?q=80&w=1200&auto=format&fit=crop',
-    album: '频道活动',
-    tags: ['Meetup', 'Community', 'Team', 'Event'],
-    likes: 410,
-    views: 2200,
-    author: 'Channel Team',
-    date: '2026-07-15',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Canon EOS R5, 35mm f/1.8',
-    resolution: '3000 x 2000'
-  },
-  {
-    id: 'photo-5',
-    title: '深空银河璀璨星轨',
-    description: '深夜山顶拍摄的银河全景，满天繁星闪烁，仿佛伸手可及。',
-    url: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=1200&auto=format&fit=crop',
-    album: '风光摄影',
-    tags: ['Night', 'Space', 'Stars', 'Astrophotography'],
-    likes: 620,
-    views: 4500,
-    author: 'AstroGuy',
-    date: '2026-07-10',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Nikon Z7 II, 14mm f/2.8, 25s exposure',
-    resolution: '3840 x 2160'
-  },
-  {
-    id: 'photo-6',
-    title: '城市建筑立体几何美学',
-    description: '频道建筑设计专题：现代钢筋水泥与玻璃幕墙在日光下的几何线条。',
-    url: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=1200&auto=format&fit=crop',
-    album: '视觉艺术',
-    tags: ['Architecture', 'Urban', 'Design', 'Lines'],
-    likes: 195,
-    views: 1120,
-    author: 'ArchStudio',
-    date: '2026-07-05',
-    aspectRatio: '1:1',
-    cameraOrInfo: 'Leica M11, 50mm f/2.0',
-    resolution: '2400 x 2400'
-  },
-  {
-    id: 'photo-7',
-    title: '热带雨林中的斑驳阳光',
-    description: '阳光穿透茂密的树冠，照耀在青苔与瀑布水雾之上。',
-    url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?q=80&w=1200&auto=format&fit=crop',
-    album: '风光摄影',
-    tags: ['Forest', 'Green', 'Sunlight', 'Nature'],
-    likes: 278,
-    views: 1650,
-    author: 'WildExplorer',
-    date: '2026-07-01',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Fujifilm X-T4, 16-55mm',
-    resolution: '3200 x 1800'
-  },
-  {
-    id: 'photo-8',
-    title: '赛博空间极光壁纸',
-    description: '充满科技感的虚拟极光效果，适合作为桌面 wallpaper。',
-    url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1200&auto=format&fit=crop',
-    album: '壁纸素材',
-    tags: ['Aurora', 'Sci-Fi', 'Wallpaper', 'Glowing'],
-    likes: 388,
-    views: 2980,
-    author: 'VaporWave Studio',
-    date: '2026-06-28',
-    aspectRatio: '16:9',
-    cameraOrInfo: 'Procedural Shader Render',
-    resolution: '3840 x 2160'
-  }
-];
+let channelPhotos: TelegramPhoto[] = [];
 
-// Get Photos with filter / search / album / sort
-app.get('/api/photos', (req, res) => {
-  const { album, search, tag, sort } = req.query;
+// Helper function to fetch real Telegram channel web view
+async function syncTelegramChannel(channelInput: string) {
+  const handle = cleanChannelHandle(channelInput);
+  if (!handle) return false;
+
+  try {
+    const targetUrl = `https://t.me/s/${handle}`;
+    console.log(`[Telegram Sync] Fetching channel page from: ${targetUrl}`);
+    const res = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      }
+    });
+
+    if (!res.ok) {
+      console.error(`[Telegram Sync] HTTP error ${res.status} when fetching t.me/s/${handle}`);
+      return false;
+    }
+
+    const html = await res.text();
+    const parsed = parseTelegramWebHtml(html, handle);
+
+    if (parsed.photos.length > 0) {
+      channelPhotos = parsed.photos;
+      channelConfig.channelName = parsed.info.channelName;
+      channelConfig.channelBio = parsed.info.channelBio;
+      channelConfig.avatarUrl = parsed.info.avatarUrl;
+      channelConfig.bannerUrl = parsed.info.bannerUrl;
+      if (parsed.info.totalMembers) {
+        channelConfig.totalMembers = parsed.info.totalMembers;
+      }
+      channelConfig.handle = handle;
+      console.log(`[Telegram Sync] Successfully loaded ${parsed.photos.length} photos for @${handle}`);
+      return true;
+    } else {
+      console.warn(`[Telegram Sync] No photos found in html for @${handle}`);
+    }
+  } catch (err) {
+    console.error(`[Telegram Sync] Exception during sync for @${handle}:`, err);
+  }
+  return false;
+}
+
+// Initial sync on server boot
+syncTelegramChannel(initialChannelHandle).catch(err => {
+  console.error('Initial TG Sync failed:', err);
+});
+
+// Endpoint to explicitly trigger TG sync
+app.all('/api/telegram/sync', async (req, res) => {
+  const channel = (req.query.channel || req.body?.channel || channelConfig.handle || 'sphotographs') as string;
+  const success = await syncTelegramChannel(channel);
+  res.json({
+    success,
+    handle: channelConfig.handle,
+    info: channelConfig,
+    photosCount: channelPhotos.length,
+    photos: channelPhotos
+  });
+});
+
+// Get Photos with filter / search / album / sort / channel
+app.get('/api/photos', async (req, res) => {
+  const { album, search, tag, sort, channel } = req.query;
+
+  if (channel && String(channel) !== channelConfig.handle) {
+    await syncTelegramChannel(String(channel));
+  }
+
+  // If photos list is still empty, attempt a quick sync
+  if (channelPhotos.length === 0 && channelConfig.handle) {
+    await syncTelegramChannel(channelConfig.handle);
+  }
 
   let filtered = [...channelPhotos];
 
@@ -197,6 +136,7 @@ app.get('/api/photos', (req, res) => {
   res.json({
     photos: filtered,
     albums: ['All', ...Array.from(new Set(channelPhotos.map(p => p.album)))],
+    info: channelConfig,
     totalCount: filtered.length,
   });
 });

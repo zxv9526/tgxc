@@ -30,32 +30,26 @@ import {
   Pause,
   List,
   SlidersHorizontal,
-  Info
+  Info,
+  ExternalLink,
+  Send
 } from 'lucide-react';
+import {
+  fetchTelegramChannelFromClient,
+  cleanChannelHandle,
+  TelegramPhoto
+} from './utils/telegram';
 
 // --- Type Definitions ---
-interface ChannelPhoto {
-  id: string;
-  title: string;
-  description: string;
-  url: string;
-  album: string;
-  tags: string[];
-  likes: number;
-  views: number;
-  author: string;
-  date: string;
-  aspectRatio: string;
-  cameraOrInfo?: string;
-  resolution?: string;
-}
+type ChannelPhoto = TelegramPhoto;
 
 interface ChannelConfig {
   channelName: string;
   channelBio: string;
   bannerUrl: string;
   avatarUrl: string;
-  totalMembers: number;
+  totalMembers: string | number;
+  handle?: string;
 }
 
 // --- Fallback Data for Static Deployments (e.g., GitHub Pages) ---
@@ -183,13 +177,21 @@ const FALLBACK_PHOTOS: ChannelPhoto[] = [
 ];
 
 export default function App() {
+  // Telegram Channel Handle State
+  const [tgHandle, setTgHandle] = useState<string>(() => {
+    return localStorage.getItem('tg_channel_handle') || 'sphotographs';
+  });
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
   // --- Global Channel & Gallery State ---
   const [config, setConfig] = useState<ChannelConfig>({
-    channelName: 'AI Creator Studio Channel',
-    channelBio: '官方频道图集与精选摄影相册库。支持相册分类、多重过滤、幻灯片巡览与相册管理。',
+    channelName: 'Telegram 官方频道图集',
+    channelBio: '同步 Telegram 公开频道的最新精选相册。支持相册分类、多重过滤、幻灯片巡览与相册管理。',
     bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop',
-    totalMembers: 12450
+    totalMembers: '12,450 关注',
+    handle: 'sphotographs'
   });
 
   const [photos, setPhotos] = useState<ChannelPhoto[]>([]);
@@ -201,7 +203,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'grid' | 'slideshow' | 'list'>('grid');
   
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Lightbox Modal State
   const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
@@ -229,6 +230,67 @@ export default function App() {
   const [editBannerUrl, setEditBannerUrl] = useState<string>('');
   const [editAvatarUrl, setEditAvatarUrl] = useState<string>('');
 
+  // Synchronization with Telegram Channel
+  const handleSyncTelegram = useCallback(async (targetHandleInput?: string) => {
+    const handleToSync = cleanChannelHandle(targetHandleInput || tgHandle);
+    if (!handleToSync) return;
+
+    setIsSyncing(true);
+    setSyncMsg(`正在连接并拉取 @${handleToSync} 频道的最新图片...`);
+
+    try {
+      // 1. Try Backend API first
+      const res = await fetch(`/api/telegram/sync?channel=${encodeURIComponent(handleToSync)}`);
+      const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
+
+      if (isJson) {
+        const data = await res.json();
+        if (data.photos && data.photos.length > 0) {
+          setPhotos(data.photos);
+          setAlbums(['All', ...Array.from(new Set(data.photos.map((p: any) => p.album))) as string[]]);
+          if (data.info) setConfig(data.info);
+          localStorage.setItem('tg_channel_handle', handleToSync);
+          localStorage.setItem('channel_photos', JSON.stringify(data.photos));
+          setSyncMsg(`已成功拉取 @${handleToSync} 频道的 ${data.photos.length} 张原图照片！`);
+          setIsLoading(false);
+          setIsSyncing(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Backend sync API failed, trying client fallback:', err);
+    }
+
+    // 2. Fallback to client-side Telegram Web Parser
+    try {
+      const clientResult = await fetchTelegramChannelFromClient(handleToSync);
+      if (clientResult && clientResult.photos.length > 0) {
+        setPhotos(clientResult.photos);
+        setAlbums(['All', ...Array.from(new Set(clientResult.photos.map(p => p.album))) as string[]]);
+        setConfig({
+          channelName: clientResult.info.channelName,
+          channelBio: clientResult.info.channelBio,
+          avatarUrl: clientResult.info.avatarUrl,
+          bannerUrl: clientResult.info.bannerUrl,
+          totalMembers: clientResult.info.totalMembers || '12,450 关注',
+          handle: handleToSync
+        });
+        localStorage.setItem('tg_channel_handle', handleToSync);
+        localStorage.setItem('channel_photos', JSON.stringify(clientResult.photos));
+        setSyncMsg(`同步成功！已展示 @${handleToSync} 频道的 ${clientResult.photos.length} 张最新图片！`);
+        setIsLoading(false);
+        setIsSyncing(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Client-side Telegram fetch error:', err);
+    }
+
+    setSyncMsg(`未能在 @${handleToSync} 中解析到照片，请确认频道为公开 Telegram 频道且包含图片发帖。`);
+    setIsLoading(false);
+    setIsSyncing(false);
+  }, [tgHandle]);
+
   // Fetch Config
   const fetchConfig = useCallback(async () => {
     try {
@@ -247,7 +309,6 @@ export default function App() {
       console.warn('Backend config endpoint unavailable:', err);
     }
 
-    // Fallback to localStorage or default config
     try {
       const savedConfig = localStorage.getItem('channel_config');
       if (savedConfig) {
@@ -266,64 +327,60 @@ export default function App() {
   // Fetch Photos
   const fetchPhotos = useCallback(async () => {
     setIsLoading(true);
+    const handleToFetch = cleanChannelHandle(tgHandle);
+
     try {
       const params = new URLSearchParams();
       if (selectedAlbum !== 'All') params.append('album', selectedAlbum);
       if (selectedTag) params.append('tag', selectedTag);
       if (searchQuery) params.append('search', searchQuery);
       if (sortBy) params.append('sort', sortBy);
+      if (handleToFetch) params.append('channel', handleToFetch);
 
       const res = await fetch(`/api/photos?${params.toString()}`);
       const isJson = res.ok && res.headers.get('content-type')?.includes('application/json');
       if (isJson) {
         const data = await res.json();
-        setPhotos(data.photos || []);
-        setAlbums(data.albums || ['All']);
+        if (data.photos && data.photos.length > 0) {
+          setPhotos(data.photos);
+          setAlbums(data.albums || ['All']);
+          if (data.info) setConfig(data.info);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.warn('Backend API unavailable, trying client fallback:', err);
+    }
+
+    if (handleToFetch) {
+      const clientResult = await fetchTelegramChannelFromClient(handleToFetch);
+      if (clientResult && clientResult.photos.length > 0) {
+        let filtered = [...clientResult.photos];
+        if (selectedAlbum !== 'All') filtered = filtered.filter(p => p.album === selectedAlbum);
+        if (selectedTag) filtered = filtered.filter(p => p.tags.some(t => t.toLowerCase() === selectedTag.toLowerCase()));
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          filtered = filtered.filter(p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
+        }
+        setPhotos(filtered);
+        setAlbums(['All', ...Array.from(new Set(clientResult.photos.map(p => p.album)))]);
+        setConfig({
+          channelName: clientResult.info.channelName,
+          channelBio: clientResult.info.channelBio,
+          avatarUrl: clientResult.info.avatarUrl,
+          bannerUrl: clientResult.info.bannerUrl,
+          totalMembers: clientResult.info.totalMembers || '12,450 关注',
+          handle: handleToFetch
+        });
         setIsLoading(false);
         return;
       }
-    } catch (err: any) {
-      console.warn('Backend API unavailable, using fallback client state:', err);
     }
 
-    // Fallback local filtering for GitHub Pages static hosting
-    try {
-      let localData: ChannelPhoto[] = [];
-      const stored = localStorage.getItem('channel_photos');
-      if (stored) {
-        localData = JSON.parse(stored);
-      } else {
-        localData = [...FALLBACK_PHOTOS];
-      }
-
-      let filtered = [...localData];
-      if (selectedAlbum !== 'All') {
-        filtered = filtered.filter(p => p.album === selectedAlbum);
-      }
-      if (selectedTag) {
-        filtered = filtered.filter(p => p.tags.some(t => t.toLowerCase() === selectedTag.toLowerCase()));
-      }
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        filtered = filtered.filter(p =>
-          p.title.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.tags.some(t => t.toLowerCase().includes(q))
-        );
-      }
-      if (sortBy === 'popular') filtered.sort((a, b) => b.views - a.views);
-      else if (sortBy === 'likes') filtered.sort((a, b) => b.likes - a.likes);
-      else filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      setPhotos(filtered);
-      setAlbums(['All', ...Array.from(new Set(localData.map(p => p.album)))]);
-    } catch (e) {
-      console.error('Error in fallback photos handler:', e);
-      setPhotos(FALLBACK_PHOTOS);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedAlbum, selectedTag, searchQuery, sortBy]);
+    setPhotos(FALLBACK_PHOTOS);
+    setIsLoading(false);
+  }, [tgHandle, selectedAlbum, selectedTag, searchQuery, sortBy]);
 
   useEffect(() => {
     fetchConfig();
