@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, AlertCircle, Loader2, X } from 'lucide-react';
+import { Download, AlertCircle, Loader2, X, Play, Pause, ChevronUp } from 'lucide-react';
 import {
   fetchTelegramChannelFromClient,
   cleanChannelHandle,
@@ -55,9 +55,13 @@ export default function App() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Filters & Pagination
+  // Filters & State
   const [filterMode, setFilterMode] = useState<'today' | 'all'>('today');
-  const [visibleCount, setVisibleCount] = useState<number>(10);
+
+  // Auto-scrolling state
+  const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
+  const [scrollSpeed, setScrollSpeed] = useState<number>(0.5); // pixels per frame normalized
+  const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
 
   // Lightbox magnification state
   const [activePhoto, setActivePhoto] = useState<TelegramPhoto | null>(null);
@@ -106,6 +110,68 @@ export default function App() {
   useEffect(() => {
     loadPhotos();
   }, [loadPhotos]);
+
+  // Back to top scroll visibility listener
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 400);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Premium Auto-Scroller Engine via requestAnimationFrame
+  useEffect(() => {
+    if (!isAutoScrolling) return;
+
+    let lastTime = performance.now();
+    let animationFrameId: number;
+
+    const scrollStep = (time: number) => {
+      const delta = time - lastTime;
+      lastTime = time;
+
+      // Base: at 60fps (16.67ms frame time), scroll pixels equal scrollSpeed.
+      const pixelsToScroll = scrollSpeed * (delta / 16.666);
+      window.scrollBy(0, pixelsToScroll);
+
+      // Stop if reached the end of the scroll container
+      const scrollHeight = document.documentElement.scrollHeight;
+      const currentScroll = window.scrollY + window.innerHeight;
+      if (currentScroll >= scrollHeight - 3) {
+        setIsAutoScrolling(false);
+        return;
+      }
+
+      animationFrameId = requestAnimationFrame(scrollStep);
+    };
+
+    animationFrameId = requestAnimationFrame(scrollStep);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [isAutoScrolling, scrollSpeed]);
+
+  // Dynamic interrupt: pause auto-scrolling if user interacts with wheel, touch, drag
+  useEffect(() => {
+    if (!isAutoScrolling) return;
+
+    const handleUserInteraction = () => {
+      setIsAutoScrolling(false);
+    };
+
+    window.addEventListener('wheel', handleUserInteraction, { passive: true });
+    window.addEventListener('touchmove', handleUserInteraction, { passive: true });
+    window.addEventListener('mousedown', handleUserInteraction, { passive: true });
+    window.addEventListener('keydown', handleUserInteraction, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleUserInteraction);
+      window.removeEventListener('touchmove', handleUserInteraction);
+      window.removeEventListener('mousedown', handleUserInteraction);
+      window.removeEventListener('keydown', handleUserInteraction);
+    };
+  }, [isAutoScrolling]);
 
   // Handle direct file download for the magnified active image
   const handleDownload = async (photo: TelegramPhoto) => {
@@ -156,11 +222,6 @@ export default function App() {
   const filteredPhotos = filterMode === 'today'
     ? photos.filter(p => p.date === targetDateString)
     : photos;
-
-  // Reset pagination limit when filter mode is toggled
-  useEffect(() => {
-    setVisibleCount(10);
-  }, [filterMode]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-2 sm:p-6 select-none font-sans">
@@ -226,7 +287,7 @@ export default function App() {
 
             {/* Main Image Grid / List */}
             <div className="flex flex-col gap-6">
-              {filteredPhotos.slice(0, visibleCount).map((photo, index) => (
+              {filteredPhotos.map((photo, index) => (
                 <ScrollableImage
                   key={photo.id || index}
                   photo={photo}
@@ -236,21 +297,70 @@ export default function App() {
                 />
               ))}
             </div>
-
-            {/* Pagination Load More Selector */}
-            {visibleCount < filteredPhotos.length && (
-              <div className="flex justify-center mt-4">
-                <button
-                  onClick={() => setVisibleCount(prev => prev + 10)}
-                  className="px-6 py-3 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-bold tracking-wider transition-all cursor-pointer shadow-md"
-                >
-                  加载更多图片 ({filteredPhotos.length - visibleCount} 张)
-                </button>
-              </div>
-            )}
           </div>
         )}
       </main>
+
+      {/* Floating Auto-Scroll & Back-to-Top Control Panel */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2.5 items-end">
+        {/* Go to Top Button (only visible if scrolled down) */}
+        {showBackToTop && (
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="p-3 bg-slate-900/95 hover:bg-slate-800 active:bg-slate-950 text-sky-400 rounded-full border border-slate-800 shadow-xl transition-all duration-300 hover:scale-105 cursor-pointer backdrop-blur-sm"
+            title="回到顶部"
+          >
+            <ChevronUp className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Auto scroll control pill */}
+        {!isLoading && !errorMsg && filteredPhotos.length > 0 && (
+          <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 p-2 rounded-2xl shadow-2xl backdrop-blur-sm">
+            <button
+              onClick={() => setIsAutoScrolling(!isAutoScrolling)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                isAutoScrolling
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              {isAutoScrolling ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>滚动中</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>自动滚动</span>
+                </>
+              )}
+            </button>
+
+            {/* Speed Controls */}
+            <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-900">
+              {[
+                { label: '慢', value: 0.3 },
+                { label: '中', value: 0.75 },
+                { label: '快', value: 1.5 }
+              ].map((speed) => (
+                <button
+                  key={speed.value}
+                  onClick={() => setScrollSpeed(speed.value)}
+                  className={`px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                    scrollSpeed === speed.value
+                      ? 'bg-sky-500/20 text-sky-400 font-bold'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {speed.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Lightbox / Magnification Fullscreen Modal (Visible only after clicking an image) */}
       {activePhoto && (
