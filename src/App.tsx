@@ -15,7 +15,81 @@ function ScrollableImage({
   photo: TelegramPhoto;
   onClick: () => void;
 }) {
+  const [imgSrc, setImgSrc] = useState<string>('');
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+
+    async function loadImage() {
+      setStatus('loading');
+      
+      // Extract the raw image URL if it's already wrapped in our local proxy URL
+      let rawImgUrl = photo.url;
+      if (photo.url.startsWith('/api/proxy-image') || photo.url.includes('/api/proxy-image?url=')) {
+        const parts = photo.url.split('/api/proxy-image?url=');
+        if (parts[1]) {
+          rawImgUrl = decodeURIComponent(parts[1]);
+        }
+      }
+
+      // We will try these sources sequentially:
+      // 1. Local Express API proxy endpoint (works in normal tabs)
+      // 2. Public CORS proxy 1: corsproxy.io (works inside iframe/sandboxes without cookies)
+      // 3. Public CORS proxy 2: allorigins.win (backup public CORS proxy)
+      // 4. Raw direct Telegram CDN URL (last resort)
+      const sources = [
+        `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(rawImgUrl)}`,
+        rawImgUrl
+      ];
+
+      for (const src of sources) {
+        if (!active) return;
+        try {
+          const response = await fetch(src);
+          if (response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            // If the response is HTML, it means we hit a platform redirect or cookie check block, skip!
+            if (contentType.includes('html')) {
+              continue;
+            }
+            
+            const blob = await response.blob();
+            if (blob.type.includes('html')) {
+              continue; // Skip if parsed blob is HTML
+            }
+            
+            if (active) {
+              objectUrl = URL.createObjectURL(blob);
+              setImgSrc(objectUrl);
+              setStatus('loaded');
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to load image from source ${src}:`, err);
+        }
+      }
+
+      // If all proxy methods fail, set raw direct URL as last-resort fallback
+      if (active) {
+        setImgSrc(rawImgUrl);
+        setStatus('loaded');
+      }
+    }
+
+    loadImage();
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [photo.url]);
 
   return (
     <div
@@ -49,15 +123,17 @@ function ScrollableImage({
         </div>
       )}
 
-      <img
-        src={formatImageUrl(photo.url)}
-        alt="Telegram Photo"
-        onLoad={() => setStatus('loaded')}
-        onError={() => setStatus('error')}
-        className={`max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-all duration-500 rounded-lg ${
-          status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95 absolute pointer-events-none'
-        }`}
-      />
+      {imgSrc && (
+        <img
+          src={imgSrc}
+          alt="Telegram Photo"
+          onLoad={() => setStatus('loaded')}
+          onError={() => setStatus('error')}
+          className={`max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-all duration-500 rounded-lg ${
+            status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95 absolute pointer-events-none'
+          }`}
+        />
+      )}
       
       {/* Dynamic Hover Indicator */}
       {status === 'loaded' && (
@@ -65,6 +141,114 @@ function ScrollableImage({
           <span className="text-xs text-white/90 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm tracking-wider font-medium">
             点击放大图片
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Subcomponent to load and render the magnified image inside the lightbox
+function LightboxImage({
+  photo,
+  onDownload
+}: {
+  photo: TelegramPhoto;
+  onDownload: () => void;
+}) {
+  const [imgSrc, setImgSrc] = useState<string>('');
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+
+    async function loadImage() {
+      setStatus('loading');
+      
+      let rawImgUrl = photo.url;
+      if (photo.url.startsWith('/api/proxy-image') || photo.url.includes('/api/proxy-image?url=')) {
+        const parts = photo.url.split('/api/proxy-image?url=');
+        if (parts[1]) {
+          rawImgUrl = decodeURIComponent(parts[1]);
+        }
+      }
+
+      const sources = [
+        `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(rawImgUrl)}`,
+        rawImgUrl
+      ];
+
+      for (const src of sources) {
+        if (!active) return;
+        try {
+          const response = await fetch(src);
+          if (response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('html')) {
+              continue;
+            }
+            const blob = await response.blob();
+            if (blob.type.includes('html')) {
+              continue;
+            }
+            if (active) {
+              objectUrl = URL.createObjectURL(blob);
+              setImgSrc(objectUrl);
+              setStatus('loaded');
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed loading image in lightbox from ${src}:`, err);
+        }
+      }
+
+      if (active) {
+        setImgSrc(rawImgUrl);
+        setStatus('loaded');
+      }
+    }
+
+    loadImage();
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [photo.url]);
+
+  return (
+    <div className="relative flex flex-col items-center justify-center min-h-[300px] w-full">
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
+          <span className="text-xs text-slate-400">正在载入高清原图...</span>
+        </div>
+      )}
+
+      {imgSrc && (
+        <img
+          src={imgSrc}
+          alt="Magnified Original"
+          className={`max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl transition-all duration-300 ${
+            status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+          }`}
+        />
+      )}
+
+      {status === 'loaded' && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={onDownload}
+            className="px-8 py-3 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-sm sm:text-base rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
+          >
+            <Download className="w-5 h-5" />
+            <span>下载原图</span>
+          </button>
         </div>
       )}
     </div>
@@ -338,7 +522,10 @@ export default function App() {
               <div className="text-xs text-slate-400 bg-slate-900/40 px-3.5 py-2 rounded-xl border border-slate-900">
                 {filterMode === 'today' ? (
                   <span>
-                    日期: <strong className="text-sky-400">{targetDateString}</strong> ({filteredPhotos.length} 张)
+                    {!hasTodayPhotos && (
+                      <span className="text-slate-400 mr-2.5">今日 (北京时间 {todayString}) 暂无新图更新，已为您展示</span>
+                    )}
+                    最新更新日期: <strong className="text-sky-400">{targetDateString}</strong> ({filteredPhotos.length} 张)
                   </span>
                 ) : (
                   <span>
@@ -382,16 +569,12 @@ export default function App() {
           <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 p-2 rounded-2xl shadow-2xl backdrop-blur-sm">
             <button
               onClick={() => setIsAutoScrolling(!isAutoScrolling)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isAutoScrolling
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-slate-800 text-slate-300 hover:bg-slate-700"
             >
               {isAutoScrolling ? (
                 <>
-                  <Pause className="w-3.5 h-3.5 fill-current" />
-                  <span>滚动中</span>
+                  <Pause className="w-3.5 h-3.5 fill-current animate-pulse text-emerald-400" />
+                  <span className="text-emerald-400">滚动中</span>
                 </>
               ) : (
                 <>
@@ -445,22 +628,10 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
             className="relative flex flex-col items-center max-w-5xl w-full max-h-[90vh] bg-transparent"
           >
-            <img
-              src={getActiveImageSrc()}
-              alt="Magnified Original"
-              className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl"
+            <LightboxImage
+              photo={activePhoto}
+              onDownload={() => handleDownload(activePhoto)}
             />
-
-            {/* Downloader Button (Only appears below magnified image) */}
-            <div className="mt-6 flex justify-center">
-              <button
-                onClick={() => handleDownload(activePhoto)}
-                className="px-8 py-3 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-sm sm:text-base rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
-              >
-                <Download className="w-5 h-5" />
-                <span>下载原图</span>
-              </button>
-            </div>
           </div>
         </div>
       )}
