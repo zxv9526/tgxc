@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, ChevronLeft, ChevronRight, AlertCircle, Loader2 } from 'lucide-react';
+import { Download, AlertCircle, Loader2, X } from 'lucide-react';
 import {
   fetchTelegramChannelFromClient,
   cleanChannelHandle,
@@ -7,16 +7,64 @@ import {
   TelegramPhoto
 } from './utils/telegram';
 
+// Subcomponent to render each image with self-contained proxy-error fallback
+function ScrollableImage({
+  photo,
+  onClick
+}: {
+  photo: TelegramPhoto;
+  onClick: () => void;
+}) {
+  const [failed, setFailed] = useState<boolean>(false);
+
+  const getSrc = () => {
+    const rawUrl = photo.url;
+    if (failed && rawUrl.includes('/api/proxy-image?url=')) {
+      // Decode and return original CDN URL directly if proxy failed
+      return decodeURIComponent(rawUrl.split('/api/proxy-image?url=')[1]);
+    }
+    return formatImageUrl(rawUrl);
+  };
+
+  return (
+    <div
+      onClick={onClick}
+      className="group relative w-full bg-slate-900 border border-slate-900 hover:border-slate-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 flex items-center justify-center min-h-[250px] shadow-lg shadow-black/40"
+    >
+      <img
+        src={getSrc()}
+        alt="Telegram Photo"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (!failed) {
+            setFailed(true);
+          }
+        }}
+        className="max-h-[80vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-transform duration-300 rounded-lg"
+      />
+      
+      {/* Dynamic Hover Indicator */}
+      <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <span className="text-xs text-white/90 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm tracking-wider font-medium">
+          点击放大图片
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [channelHandle] = useState<string>(() => {
     return cleanChannelHandle(localStorage.getItem('tg_channel_handle') || 'amlhmfzl');
   });
 
   const [photos, setPhotos] = useState<TelegramPhoto[]>([]);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [imageFailed, setImageFailed] = useState<boolean>(false);
+
+  // Lightbox magnification state
+  const [activePhoto, setActivePhoto] = useState<TelegramPhoto | null>(null);
+  const [activePhotoFailed, setActivePhotoFailed] = useState<boolean>(false);
 
   // Sync / fetch photos automatically on load
   const loadPhotos = useCallback(async () => {
@@ -52,7 +100,6 @@ export default function App() {
 
     if (fetchedPhotos.length > 0) {
       setPhotos(fetchedPhotos);
-      setCurrentIndex(0);
     } else {
       setErrorMsg('未能在公开频道中获取到照片，请稍后刷新重试。');
     }
@@ -64,37 +111,9 @@ export default function App() {
     loadPhotos();
   }, [loadPhotos]);
 
-  // Keyboard arrow keys navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        prevPhoto();
-      } else if (e.key === 'ArrowRight') {
-        nextPhoto();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [photos]);
-
-  const prevPhoto = () => {
-    if (photos.length === 0) return;
-    setImageFailed(false);
-    setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
-  };
-
-  const nextPhoto = () => {
-    if (photos.length === 0) return;
-    setImageFailed(false);
-    setCurrentIndex((prev) => (prev + 1) % photos.length);
-  };
-
-  const currentPhoto = photos[currentIndex];
-
-  // Helper to trigger direct file download
-  const handleDownload = async () => {
-    if (!currentPhoto) return;
-    const targetUrl = formatImageUrl(currentPhoto.url);
+  // Handle direct file download for the magnified active image
+  const handleDownload = async (photo: TelegramPhoto) => {
+    const targetUrl = formatImageUrl(photo.url);
 
     try {
       const res = await fetch(targetUrl);
@@ -102,7 +121,7 @@ export default function App() {
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `photo-${currentIndex + 1}.jpg`;
+      link.download = `telegram-photo-${Date.now()}.jpg`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -116,95 +135,107 @@ export default function App() {
     }
   };
 
-  // Get current image source with fallback option
-  const getImageSrc = () => {
-    if (!currentPhoto) return '';
-    const rawUrl = currentPhoto.url;
-    if (imageFailed && rawUrl.includes('/api/proxy-image?url=')) {
-      // Extract original URL if proxy failed
+  const getActiveImageSrc = () => {
+    if (!activePhoto) return '';
+    const rawUrl = activePhoto.url;
+    if (activePhotoFailed && rawUrl.includes('/api/proxy-image?url=')) {
       return decodeURIComponent(rawUrl.split('/api/proxy-image?url=')[1]);
     }
     return formatImageUrl(rawUrl);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-2 sm:p-6 select-none">
-      {/* Minimal Photo Frame */}
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col">
-        
-        {/* Frame Canvas */}
-        <div className="relative aspect-4/3 sm:aspect-16/10 min-h-[320px] bg-slate-950 flex items-center justify-center overflow-hidden">
-          {isLoading ? (
-            <div className="flex flex-col items-center gap-3 text-slate-400">
-              <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
-              <p className="text-xs">加载原图... </p>
-            </div>
-          ) : errorMsg ? (
-            <div className="flex flex-col items-center gap-3 p-6 text-center text-rose-300">
-              <AlertCircle className="w-8 h-8 text-rose-400" />
-              <p className="text-xs max-w-md">{errorMsg}</p>
-              <button
-                onClick={loadPhotos}
-                className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-medium cursor-pointer border border-slate-700 transition-colors"
-              >
-                重试
-              </button>
-            </div>
-          ) : currentPhoto ? (
-            <>
-              <img
-                src={getImageSrc()}
-                alt="Photo"
-                referrerPolicy="no-referrer"
-                onError={() => {
-                  if (!imageFailed) {
-                    setImageFailed(true);
-                  }
-                }}
-                className="w-full h-full object-contain"
-              />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 sm:p-8 select-none font-sans">
+      
+      {/* Subtle Mini Header */}
+      <header className="w-full max-w-4xl flex items-center justify-between mb-6 px-1">
+        <span className="text-xs text-slate-400 font-mono tracking-widest uppercase">
+          Telegram 频道图库
+        </span>
+        <span className="text-xs text-sky-400 font-mono font-semibold">
+          @{channelHandle}
+        </span>
+      </header>
 
-              {/* Navigation Arrows */}
-              {photos.length > 1 && (
-                <>
-                  <button
-                    onClick={prevPhoto}
-                    className="absolute left-3 p-3 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full border border-slate-700/80 transition-colors cursor-pointer backdrop-blur-md"
-                    title="上一张"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                  <button
-                    onClick={nextPhoto}
-                    className="absolute right-3 p-3 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full border border-slate-700/80 transition-colors cursor-pointer backdrop-blur-md"
-                    title="下一张"
-                  >
-                    <ChevronRight className="w-6 h-6" />
-                  </button>
-                </>
-              )}
-
-              {/* Image Counter Badge */}
-              <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-md px-3 py-1 rounded-full border border-slate-800 text-xs font-mono text-slate-300">
-                {currentIndex + 1} / {photos.length}
-              </div>
-            </>
-          ) : null}
-        </div>
-
-        {/* Action Footer - Download Button Only */}
-        {currentPhoto && (
-          <div className="p-4 bg-slate-900 border-t border-slate-800/80 flex items-center justify-center">
+      {/* Main Content Area */}
+      <main className="w-full max-w-4xl flex flex-col gap-8">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-32 gap-3 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
+            <p className="text-xs">加载公开频道图片中...</p>
+          </div>
+        ) : errorMsg ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-3 text-center text-rose-300 bg-slate-900/40 border border-slate-900 rounded-2xl p-6">
+            <AlertCircle className="w-8 h-8 text-rose-400" />
+            <p className="text-xs max-w-md">{errorMsg}</p>
             <button
-              onClick={handleDownload}
-              className="px-6 py-2.5 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-semibold text-xs sm:text-sm rounded-xl flex items-center gap-2 shadow-lg shadow-sky-500/20 transition-all cursor-pointer"
+              onClick={loadPhotos}
+              className="mt-2 px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-medium cursor-pointer border border-slate-700 transition-colors"
             >
-              <Download className="w-4 h-4" />
-              <span>下载原图</span>
+              重新加载
             </button>
           </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {photos.map((photo, index) => (
+              <ScrollableImage
+                key={photo.id || index}
+                photo={photo}
+                onClick={() => {
+                  setActivePhoto(photo);
+                  setActivePhotoFailed(false);
+                }}
+              />
+            ))}
+          </div>
         )}
-      </div>
+      </main>
+
+      {/* Lightbox / Magnification Fullscreen Modal (Visible only after clicking an image) */}
+      {activePhoto && (
+        <div
+          onClick={() => setActivePhoto(null)}
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in"
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setActivePhoto(null)}
+            className="absolute top-4 right-4 z-50 p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-full border border-slate-800 transition-colors cursor-pointer shadow-lg"
+            title="关闭"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {/* Expanded Image Box */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex flex-col items-center max-w-5xl w-full max-h-[90vh] bg-transparent"
+          >
+            <img
+              src={getActiveImageSrc()}
+              alt="Magnified Original"
+              referrerPolicy="no-referrer"
+              onError={() => {
+                if (!activePhotoFailed) {
+                  setActivePhotoFailed(true);
+                }
+              }}
+              className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl"
+            />
+
+            {/* Downloader Button (Only appears below magnified image) */}
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={() => handleDownload(activePhoto)}
+                className="px-8 py-3 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-sm sm:text-base rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
+              >
+                <Download className="w-5 h-5" />
+                <span>下载原图</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
