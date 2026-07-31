@@ -14,7 +14,7 @@ app.use(express.json());
 
 // Target TG Channel Handle from Env
 const initialChannelHandle = cleanChannelHandle(
-  process.env.TELEGRAM_CHANNEL || process.env.TG_CHANNEL || process.env.CHANNEL_NAME || 'sphotographs'
+  process.env.TELEGRAM_CHANNEL || process.env.TG_CHANNEL || process.env.CHANNEL_NAME || 'amlhmfzl'
 );
 
 let channelConfig = {
@@ -79,7 +79,7 @@ syncTelegramChannel(initialChannelHandle).catch(err => {
 
 // Endpoint to explicitly trigger TG sync
 app.all('/api/telegram/sync', async (req, res) => {
-  const channel = (req.query.channel || req.body?.channel || channelConfig.handle || 'sphotographs') as string;
+  const channel = (req.query.channel || req.body?.channel || channelConfig.handle || 'amlhmfzl') as string;
   const success = await syncTelegramChannel(channel);
   res.json({
     success,
@@ -88,6 +88,36 @@ app.all('/api/telegram/sync', async (req, res) => {
     photosCount: channelPhotos.length,
     photos: channelPhotos
   });
+});
+
+// Image Proxy Endpoint to bypass Telegram CDN Referrer / CORS restrictions
+app.get('/api/proxy-image', async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl || !imageUrl.startsWith('http')) {
+    return res.status(400).send('Invalid URL');
+  }
+
+  try {
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).send('Failed to fetch image');
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error('Image proxy error:', err);
+    res.status(500).send('Proxy error');
+  }
 });
 
 // Get Photos with filter / search / album / sort / channel

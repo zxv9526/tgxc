@@ -67,6 +67,15 @@ function parseViews(viewsStr: string): number {
   return isNaN(num) ? 120 : num;
 }
 
+export function formatImageUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('/api/proxy-image')) return url;
+  if (url.includes('telesco.pe') || url.includes('telegram-cdn.org') || url.includes('telegram.org')) {
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 export function parseTelegramWebHtml(html: string, channelHandle: string): {
   info: TelegramChannelInfo;
   photos: TelegramPhoto[];
@@ -95,7 +104,7 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
   const avatarMatch = html.match(/<img class="(?:tgme_page_photo_image|tgme_channel_info_header_photo)"[^>]*src="([^"]+)"/i) ||
                       html.match(/<img[^>]*src="([^"]+)"[^>]*class="[^"]*photo/i);
   if (avatarMatch && avatarMatch[1]) {
-    avatarUrl = avatarMatch[1];
+    avatarUrl = formatImageUrl(avatarMatch[1]);
   }
 
   let totalMembers = '';
@@ -178,7 +187,7 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
         id: `tg-${messageId}${imgIdx > 0 ? `-${imgIdx}` : ''}`,
         title: imageUrls.length > 1 ? `${title} (${imgIdx + 1}/${imageUrls.length})` : title,
         description,
-        url: imgUrl,
+        url: formatImageUrl(imgUrl),
         album,
         tags,
         likes: Math.floor(views * 0.15) + Math.floor(Math.random() * 10) + 1,

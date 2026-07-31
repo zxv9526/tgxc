@@ -1,6 +1,6 @@
 {
-  "name": "Channel Photo Gallery",
-  "description": "An interactive, elegant photo gallery and album studio to browse, organize, filter, and view channel photos.",
+  "name": "Telegram Channel Photo Gallery",
+  "description": "A minimal, elegant gallery frame displaying photos directly synced from a public Telegram channel.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
