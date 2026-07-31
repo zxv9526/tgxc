@@ -202,8 +202,22 @@ export default function App() {
     return formatImageUrl(activePhoto.url);
   };
 
-  // Helper to format today's date in browser local time
+  // Helper to format today's date strictly in Beijing Time (Asia/Shanghai)
   const getTodayString = () => {
+    try {
+      const formatter = new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const parts = formatter.formatToParts(new Date());
+      const y = parts.find(p => p.type === 'year')?.value;
+      const m = parts.find(p => p.type === 'month')?.value;
+      const d = parts.find(p => p.type === 'day')?.value;
+      if (y && m && d) return `${y}-${m}-${d}`;
+    } catch (e) {}
+    // Fallback
     const d = new Date();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');

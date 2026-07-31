@@ -176,11 +176,35 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     const viewsStr = viewsMatch ? viewsMatch[1] : '';
     const views = parseViews(viewsStr);
 
-    // Date
+    // Date (converted to Beijing Time / Asia/Shanghai)
     const dateMatch = cleanBlock.match(/<time datetime="([^"]+)"/i);
-    let date = new Date().toISOString().split('T')[0];
+    let date = '';
+    const getBeijingDateString = (d: Date) => {
+      try {
+        const formatter = new Intl.DateTimeFormat('zh-CN', {
+          timeZone: 'Asia/Shanghai',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+        const parts = formatter.formatToParts(d);
+        const y = parts.find(p => p.type === 'year')?.value;
+        const m = parts.find(p => p.type === 'month')?.value;
+        const dayVal = parts.find(p => p.type === 'day')?.value;
+        if (y && m && dayVal) return `${y}-${m}-${dayVal}`;
+      } catch (e) {}
+      return d.toISOString().split('T')[0];
+    };
+
     if (dateMatch && dateMatch[1]) {
-      date = dateMatch[1].split('T')[0];
+      const parsedDate = new Date(dateMatch[1]);
+      if (!isNaN(parsedDate.getTime())) {
+        date = getBeijingDateString(parsedDate);
+      } else {
+        date = getBeijingDateString(new Date());
+      }
+    } else {
+      date = getBeijingDateString(new Date());
     }
 
     // Title & description
