@@ -7,7 +7,7 @@ import {
   TelegramPhoto
 } from './utils/telegram';
 
-// Subcomponent to render each image with self-contained proxy-error fallback
+// Subcomponent to render each image
 function ScrollableImage({
   photo,
   onClick
@@ -15,31 +15,14 @@ function ScrollableImage({
   photo: TelegramPhoto;
   onClick: () => void;
 }) {
-  const [failed, setFailed] = useState<boolean>(false);
-
-  const getSrc = () => {
-    const rawUrl = photo.url;
-    if (failed && rawUrl.includes('/api/proxy-image?url=')) {
-      // Decode and return original CDN URL directly if proxy failed
-      return decodeURIComponent(rawUrl.split('/api/proxy-image?url=')[1]);
-    }
-    return formatImageUrl(rawUrl);
-  };
-
   return (
     <div
       onClick={onClick}
       className="group relative w-full bg-slate-900 border border-slate-900 hover:border-slate-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 flex items-center justify-center min-h-[250px] shadow-lg shadow-black/40"
     >
       <img
-        src={getSrc()}
+        src={formatImageUrl(photo.url)}
         alt="Telegram Photo"
-        referrerPolicy="no-referrer"
-        onError={() => {
-          if (!failed) {
-            setFailed(true);
-          }
-        }}
         className="max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-transform duration-300 rounded-lg"
       />
       
@@ -136,11 +119,7 @@ export default function App() {
 
   const getActiveImageSrc = () => {
     if (!activePhoto) return '';
-    const rawUrl = activePhoto.url;
-    if (activePhotoFailed && rawUrl.includes('/api/proxy-image?url=')) {
-      return decodeURIComponent(rawUrl.split('/api/proxy-image?url=')[1]);
-    }
-    return formatImageUrl(rawUrl);
+    return formatImageUrl(activePhoto.url);
   };
 
   return (
@@ -203,12 +182,6 @@ export default function App() {
             <img
               src={getActiveImageSrc()}
               alt="Magnified Original"
-              referrerPolicy="no-referrer"
-              onError={() => {
-                if (!activePhotoFailed) {
-                  setActivePhotoFailed(true);
-                }
-              }}
               className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl"
             />
 
