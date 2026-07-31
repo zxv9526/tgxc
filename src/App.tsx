@@ -40,7 +40,7 @@ function ScrollableImage({
             setFailed(true);
           }
         }}
-        className="max-h-[80vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-transform duration-300 rounded-lg"
+        className="max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-transform duration-300 rounded-lg"
       />
       
       {/* Dynamic Hover Indicator */}
@@ -54,9 +54,8 @@ function ScrollableImage({
 }
 
 export default function App() {
-  const [channelHandle] = useState<string>(() => {
-    return cleanChannelHandle(localStorage.getItem('tg_channel_handle') || 'amlhmfzl');
-  });
+  // Use strictly amlhmfzl channel, ignore potential stale localStorage values
+  const channelHandle = 'amlhmfzl';
 
   const [photos, setPhotos] = useState<TelegramPhoto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -145,24 +144,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 sm:p-8 select-none font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-2 sm:p-6 select-none font-sans">
       
-      {/* Subtle Mini Header */}
-      <header className="w-full max-w-4xl flex items-center justify-between mb-6 px-1">
-        <span className="text-xs text-slate-400 font-mono tracking-widest uppercase">
-          Telegram 频道图库
-        </span>
-        <span className="text-xs text-sky-400 font-mono font-semibold">
-          @{channelHandle}
-        </span>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="w-full max-w-4xl flex flex-col gap-8">
+      {/* Main Content Area - No Header */}
+      <main className="w-full max-w-4xl flex flex-col gap-6 py-4">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-3 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-40 gap-3 text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
-            <p className="text-xs">加载公开频道图片中...</p>
+            <p className="text-xs">加载图片中...</p>
           </div>
         ) : errorMsg ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3 text-center text-rose-300 bg-slate-900/40 border border-slate-900 rounded-2xl p-6">

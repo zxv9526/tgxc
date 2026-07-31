@@ -69,14 +69,23 @@ function parseViews(viewsStr: string): number {
 
 export function formatImageUrl(url: string): string {
   if (!url) return '';
-  if (url.startsWith('/api/proxy-image')) return url;
+  if (url.startsWith('/api/proxy-image') || url.includes('/api/proxy-image')) {
+    if (typeof window !== 'undefined' && !url.startsWith('http')) {
+      return `${window.location.origin}${url}`;
+    }
+    return url;
+  }
   if (
     url.includes('telesco.pe') ||
     url.includes('telegram-cdn.org') ||
     url.includes('telegram.org') ||
     url.includes('t.me')
   ) {
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    const proxied = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}${proxied}`;
+    }
+    return proxied;
   }
   return url;
 }
