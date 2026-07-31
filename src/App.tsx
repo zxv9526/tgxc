@@ -7,7 +7,7 @@ import {
   TelegramPhoto
 } from './utils/telegram';
 
-// Subcomponent to render each image with smooth fade-in and loading state
+// Subcomponent to render each image with smooth states and robust error fallbacks
 function ScrollableImage({
   photo,
   onClick
@@ -15,34 +15,58 @@ function ScrollableImage({
   photo: TelegramPhoto;
   onClick: () => void;
 }) {
-  const [loaded, setLoaded] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
   return (
     <div
       onClick={onClick}
-      className="group relative w-full bg-slate-900/60 border border-slate-900 hover:border-slate-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 flex items-center justify-center min-h-[250px] shadow-lg shadow-black/40"
+      className="group relative w-full bg-slate-900/40 border border-slate-900/60 hover:border-slate-800/80 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 flex items-center justify-center min-h-[300px] shadow-lg shadow-black/40"
     >
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/95">
-          <Loader2 className="w-6 h-6 animate-spin text-sky-400/60" />
+      {/* Loading state spinner */}
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 gap-2">
+          <Loader2 className="w-6 h-6 animate-spin text-sky-400" />
+          <span className="text-xs text-slate-500">正在载入图片...</span>
         </div>
       )}
+
+      {/* Error state fallback */}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/95 gap-3 p-6 text-center select-text">
+          <AlertCircle className="w-8 h-8 text-rose-500 animate-pulse" />
+          <p className="text-xs text-slate-400 max-w-md">
+            该图片链接加载受限或失效。这通常是因为 Telegram 临时限制了跨域图片加载。
+          </p>
+          <a
+            href={photo.url.includes('/api/proxy-image?url=') ? decodeURIComponent(photo.url.split('/api/proxy-image?url=')[1]) : photo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1 px-4 py-2 bg-slate-800 hover:bg-slate-755 text-sky-400 text-xs font-semibold rounded-lg border border-slate-700/50 transition-colors"
+          >
+            尝试直接在浏览器新标签页中打开
+          </a>
+        </div>
+      )}
+
       <img
         src={formatImageUrl(photo.url)}
         alt="Telegram Photo"
-        loading="lazy"
-        onLoad={() => setLoaded(true)}
+        onLoad={() => setStatus('loaded')}
+        onError={() => setStatus('error')}
         className={`max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-all duration-500 rounded-lg ${
-          loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+          status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95 absolute pointer-events-none'
         }`}
       />
       
       {/* Dynamic Hover Indicator */}
-      <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        <span className="text-xs text-white/90 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm tracking-wider font-medium">
-          点击放大图片
-        </span>
-      </div>
+      {status === 'loaded' && (
+        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <span className="text-xs text-white/90 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm tracking-wider font-medium">
+            点击放大图片
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -71,40 +95,65 @@ export default function App() {
     setIsLoading(true);
     setErrorMsg(null);
 
-    let fetchedPhotos: TelegramPhoto[] = [];
+    let initialPhotos: TelegramPhoto[] = [];
 
-    // 1. Try Express backend endpoint
+    // Step 1: Instantly load cached photos from our server's DB
     try {
-      const res = await fetch(`/api/telegram/sync?channel=${encodeURIComponent(channelHandle)}`);
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const res = await fetch(`/api/photos?channel=${encodeURIComponent(channelHandle)}`);
+      if (res.ok) {
         const data = await res.json();
-        if (data.photos && data.photos.length > 0) {
-          fetchedPhotos = data.photos;
+        // The API returns an object { photos, albums, info, totalCount }
+        if (data && data.photos && data.photos.length > 0) {
+          initialPhotos = data.photos;
+          setPhotos(initialPhotos);
+          setIsLoading(false); // Disable spinner immediately since we have photos!
         }
       }
     } catch (err) {
-      console.warn('Backend endpoint error:', err);
+      console.warn('Failed to load cached photos:', err);
     }
 
-    // 2. Client fallback parser
-    if (fetchedPhotos.length === 0) {
+    // Step 2: Trigger Telegram sync in background to fetch latest updates (non-blocking)
+    try {
+      const syncPromise = fetch(`/api/telegram/sync?channel=${encodeURIComponent(channelHandle)}`)
+        .then(async (syncRes) => {
+          if (syncRes.ok && syncRes.headers.get('content-type')?.includes('application/json')) {
+            const syncData = await syncRes.json();
+            if (syncData.photos && syncData.photos.length > 0) {
+              setPhotos(syncData.photos);
+              setIsLoading(false);
+            }
+          }
+        })
+        .catch((syncErr) => {
+          console.warn('Background sync error:', syncErr);
+        });
+
+      // If we don't have any cached photos yet, we must wait for either the background sync or client-side scraper to finish
+      if (initialPhotos.length === 0) {
+        await syncPromise;
+      }
+    } catch (err) {
+      console.warn('Sync handler error:', err);
+    }
+
+    // Step 3: Client fallback parser (only if still no photos)
+    if (initialPhotos.length === 0 && photos.length === 0) {
       try {
         const clientData = await fetchTelegramChannelFromClient(channelHandle);
         if (clientData && clientData.photos.length > 0) {
-          fetchedPhotos = clientData.photos;
+          setPhotos(clientData.photos);
+          setIsLoading(false);
+        } else {
+          setErrorMsg('未能在公开频道中获取到照片，请稍后刷新重试。');
+          setIsLoading(false);
         }
       } catch (err) {
         console.warn('Client parser error:', err);
+        setErrorMsg('加载图片失败，请稍后刷新重试。');
+        setIsLoading(false);
       }
     }
-
-    if (fetchedPhotos.length > 0) {
-      setPhotos(fetchedPhotos);
-    } else {
-      setErrorMsg('未能在公开频道中获取到照片，请稍后刷新重试。');
-    }
-
-    setIsLoading(false);
   }, [channelHandle]);
 
   useEffect(() => {
