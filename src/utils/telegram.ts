@@ -70,9 +70,6 @@ function parseViews(viewsStr: string): number {
 export function formatImageUrl(url: string): string {
   if (!url) return '';
   if (url.startsWith('/api/proxy-image') || url.includes('/api/proxy-image')) {
-    if (typeof window !== 'undefined' && !url.startsWith('http')) {
-      return `${window.location.origin}${url}`;
-    }
     return url;
   }
   if (
@@ -81,11 +78,7 @@ export function formatImageUrl(url: string): string {
     url.includes('telegram.org') ||
     url.includes('t.me')
   ) {
-    const proxied = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-    if (typeof window !== 'undefined') {
-      return `${window.location.origin}${proxied}`;
-    }
-    return proxied;
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
   }
   return url;
 }
