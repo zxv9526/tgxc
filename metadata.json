@@ -1,0 +1,6 @@
+{
+  "name": "Channel Photo Gallery",
+  "description": "An interactive, elegant photo gallery and album studio to browse, organize, filter, and view channel photos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
