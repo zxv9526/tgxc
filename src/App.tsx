@@ -541,7 +541,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Filters & State
-  const [filterMode, setFilterMode] = useState<'today' | 'all'>('today');
+  const [filterMode, setFilterMode] = useState<'today' | 'yesterday' | 'all'>('yesterday');
   const [layoutMode, setLayoutMode] = useState<'stream' | 'grid'>('stream');
   const [selectedAlbum, setSelectedAlbum] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -873,8 +873,8 @@ export default function App() {
 
   const todayString = getTodayString();
 
-  // Yesterday midnight (00:00:00) in Beijing Time
-  const beijingYesterdayMidnightTimestamp = useMemo(() => {
+  // Today midnight (00:00:00) in Beijing Time
+  const beijingTodayMidnightTimestamp = useMemo(() => {
     try {
       const d = new Date();
       const beijingString = new Intl.DateTimeFormat('zh-CN', {
@@ -890,16 +890,29 @@ export default function App() {
         const todayMidnightStr = `${y}-${m}-${day}T00:00:00+08:00`;
         const todayMidnight = new Date(todayMidnightStr);
         if (!isNaN(todayMidnight.getTime())) {
-          return todayMidnight.getTime() - 24 * 60 * 60 * 1000;
+          return todayMidnight.getTime();
         }
       }
     } catch (e) {
       console.error(e);
     }
-    return Date.now() - 48 * 60 * 60 * 1000;
+    return Date.now() - 24 * 60 * 60 * 1000;
   }, []);
 
-  const photosInLast24HoursCount = useMemo(() => {
+  // Yesterday midnight (00:00:00) in Beijing Time
+  const beijingYesterdayMidnightTimestamp = useMemo(() => {
+    return beijingTodayMidnightTimestamp - 24 * 60 * 60 * 1000;
+  }, [beijingTodayMidnightTimestamp]);
+
+  const photosInTodayCount = useMemo(() => {
+    if (photos.length === 0) return 0;
+    return photos.filter(p => {
+      const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
+      return pTime >= beijingTodayMidnightTimestamp;
+    }).length;
+  }, [photos, beijingTodayMidnightTimestamp]);
+
+  const photosInYesterdayCount = useMemo(() => {
     if (photos.length === 0) return 0;
     return photos.filter(p => {
       const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
@@ -920,8 +933,13 @@ export default function App() {
   const processedPhotos = useMemo(() => {
     let result = [...photos];
 
-    // Date range mode: Show photos since yesterday 00:00:00 Beijing time to now
+    // Filter by date ranges
     if (filterMode === 'today') {
+      result = result.filter(p => {
+        const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
+        return pTime >= beijingTodayMidnightTimestamp;
+      });
+    } else if (filterMode === 'yesterday') {
       result = result.filter(p => {
         const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
         return pTime >= beijingYesterdayMidnightTimestamp;
@@ -958,7 +976,7 @@ export default function App() {
     }
 
     return result;
-  }, [photos, filterMode, beijingYesterdayMidnightTimestamp, selectedAlbum, searchQuery, sortBy]);
+  }, [photos, filterMode, beijingTodayMidnightTimestamp, beijingYesterdayMidnightTimestamp, selectedAlbum, searchQuery, sortBy]);
 
   // Slide-by-slide modal navigation calculations
   const activePhotoIndex = useMemo(() => {
@@ -1040,7 +1058,7 @@ export default function App() {
               {/* Row 1: Filters Mode, Layout, and Search */}
               <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
                 
-                {/* Switchers (Today vs All, Stream vs Grid) */}
+                {/* Switchers (Today vs Yesterday vs All, Stream vs Grid) */}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setFilterMode('today')}
@@ -1050,7 +1068,17 @@ export default function App() {
                         : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
                     }`}
                   >
-                    昨今发布 ({photosInLast24HoursCount})
+                    今日发布 ({photosInTodayCount})
+                  </button>
+                  <button
+                    onClick={() => setFilterMode('yesterday')}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
+                      filterMode === 'yesterday'
+                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
+                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
+                    }`}
+                  >
+                    昨今发布 ({photosInYesterdayCount})
                   </button>
                   <button
                     onClick={() => setFilterMode('all')}
@@ -1086,6 +1114,19 @@ export default function App() {
                       <LayoutGrid className="w-3.5 h-3.5" />
                     </button>
                   </div>
+
+                  <div className="h-5 w-px bg-slate-800/80 mx-1" />
+
+                  {/* Manual Sync trigger */}
+                  <button
+                    onClick={handleManualSync}
+                    disabled={isSyncing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/85 border border-slate-850 text-sky-400 hover:text-sky-300 hover:bg-slate-900 disabled:opacity-50 transition-all cursor-pointer shadow-sm active:scale-95"
+                    title="立即从 Telegram 深度同步更多历史图片"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? '深度同步中...' : '深度同步'}</span>
+                  </button>
                 </div>
 
                 {/* Right: Search Box */}

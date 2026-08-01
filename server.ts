@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import { parseTelegramWebHtml, cleanChannelHandle, TelegramPhoto } from './src/utils/telegram.js';
 
 dotenv.config();
@@ -28,37 +29,102 @@ let channelConfig = {
 
 let channelPhotos: TelegramPhoto[] = [];
 
-// Helper function to fetch real Telegram channel web view
+// Local file cache paths
+const cacheFilePath = path.join(__dirname, 'channel_photos_cache.json');
+const configCacheFilePath = path.join(__dirname, 'channel_config_cache.json');
+
+// Try loading cached data from disk on startup
+try {
+  if (fs.existsSync(cacheFilePath)) {
+    const data = fs.readFileSync(cacheFilePath, 'utf8');
+    channelPhotos = JSON.parse(data);
+    console.log(`[Cache Load] Successfully loaded ${channelPhotos.length} photos from disk cache.`);
+  }
+} catch (e) {
+  console.warn('[Cache Load] Error loading photos cache:', e);
+}
+
+try {
+  if (fs.existsSync(configCacheFilePath)) {
+    const data = fs.readFileSync(configCacheFilePath, 'utf8');
+    channelConfig = { ...channelConfig, ...JSON.parse(data) };
+    console.log(`[Cache Load] Successfully loaded channel config from disk cache.`);
+  }
+} catch (e) {
+  console.warn('[Cache Load] Error loading config cache:', e);
+}
+
+// Helper function to fetch real Telegram channel web view with pagination to load earlier posts
 async function syncTelegramChannel(channelInput: string) {
   const handle = cleanChannelHandle(channelInput);
   if (!handle) return false;
 
   try {
-    const targetUrl = `https://t.me/s/${handle}`;
-    console.log(`[Telegram Sync] Fetching channel page from: ${targetUrl}`);
-    const res = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      }
-    });
+    let currentBefore: number | null = null;
+    let allParsedPhotos: TelegramPhoto[] = [];
+    let mergedInfo: any = null;
 
-    if (!res.ok) {
-      console.error(`[Telegram Sync] HTTP error ${res.status} when fetching t.me/s/${handle}`);
-      return false;
+    // Fetch up to 3 pages of historical content to ensure we cover the entire day and yesterday
+    for (let page = 0; page < 3; page++) {
+      const targetUrl = currentBefore
+        ? `https://t.me/s/${handle}?before=${currentBefore}`
+        : `https://t.me/s/${handle}`;
+
+      console.log(`[Telegram Sync] Fetching page ${page + 1} from: ${targetUrl}`);
+      const res = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        }
+      });
+
+      if (!res.ok) {
+        console.error(`[Telegram Sync] HTTP error ${res.status} when fetching ${targetUrl}`);
+        break;
+      }
+
+      const html = await res.text();
+      const parsed = parseTelegramWebHtml(html, handle);
+
+      if (parsed.photos.length === 0) {
+        console.log(`[Telegram Sync] No photos found on page ${page + 1}. Stopping pagination.`);
+        break;
+      }
+
+      if (!mergedInfo) {
+        mergedInfo = parsed.info;
+      }
+
+      allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
+
+      // Find the minimum numeric messageId on the current page to query messages preceding it
+      const numericIds = parsed.photos
+        .map(p => parseInt(p.messageId || '', 10))
+        .filter(id => !isNaN(id));
+
+      if (numericIds.length > 0) {
+        const minId = Math.min(...numericIds);
+        // If the minId isn't smaller, break to prevent infinite loop
+        if (currentBefore !== null && minId >= currentBefore) {
+          break;
+        }
+        currentBefore = minId;
+      } else {
+        break; // Stop paginating if there are no numeric IDs
+      }
+
+      // Add a tiny delay between fetches to respect Telegram's server limits
+      await new Promise(resolve => setTimeout(resolve, 350));
     }
 
-    const html = await res.text();
-    const parsed = parseTelegramWebHtml(html, handle);
-
-    if (parsed.photos.length > 0) {
+    if (allParsedPhotos.length > 0) {
       if (handle !== channelConfig.handle) {
         // Overwrite if switching to a completely different channel
-        channelPhotos = parsed.photos;
+        channelPhotos = allParsedPhotos;
       } else {
         // Merge with existing photos if it's the same channel
         const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
-        parsed.photos.forEach(p => {
+        allParsedPhotos.forEach(p => {
           if (existingPhotosMap.has(p.id)) {
             const existing = existingPhotosMap.get(p.id)!;
             existingPhotosMap.set(p.id, {
@@ -76,17 +142,30 @@ async function syncTelegramChannel(channelInput: string) {
             const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
             return bTime - aTime;
           })
-          .slice(0, 500); // Limit to last 500 photos to prevent infinite growth
+          .slice(0, 1000); // Limit to last 1000 photos to prevent infinite growth
       }
-      channelConfig.channelName = parsed.info.channelName;
-      channelConfig.channelBio = parsed.info.channelBio;
-      channelConfig.avatarUrl = parsed.info.avatarUrl;
-      channelConfig.bannerUrl = parsed.info.bannerUrl;
-      if (parsed.info.totalMembers) {
-        channelConfig.totalMembers = parsed.info.totalMembers;
+
+      if (mergedInfo) {
+        channelConfig.channelName = mergedInfo.channelName || channelConfig.channelName;
+        channelConfig.channelBio = mergedInfo.channelBio || channelConfig.channelBio;
+        channelConfig.avatarUrl = mergedInfo.avatarUrl || channelConfig.avatarUrl;
+        channelConfig.bannerUrl = mergedInfo.bannerUrl || channelConfig.bannerUrl;
+        if (mergedInfo.totalMembers) {
+          channelConfig.totalMembers = mergedInfo.totalMembers;
+        }
       }
       channelConfig.handle = handle;
-      console.log(`[Telegram Sync] Successfully loaded and merged ${parsed.photos.length} photos for @${handle}. Total cached: ${channelPhotos.length}`);
+      console.log(`[Telegram Sync] Successfully loaded and merged ${allParsedPhotos.length} photos for @${handle}. Total cached: ${channelPhotos.length}`);
+      
+      // Save cache to disk to persist across server restarts
+      try {
+        fs.writeFileSync(cacheFilePath, JSON.stringify(channelPhotos, null, 2), 'utf8');
+        fs.writeFileSync(configCacheFilePath, JSON.stringify(channelConfig, null, 2), 'utf8');
+        console.log(`[Cache Save] Successfully saved ${channelPhotos.length} photos and channel config to disk cache.`);
+      } catch (cacheErr) {
+        console.warn('[Cache Save] Failed to write cache files:', cacheErr);
+      }
+      
       return true;
     } else {
       console.warn(`[Telegram Sync] No photos found in html for @${handle}`);
