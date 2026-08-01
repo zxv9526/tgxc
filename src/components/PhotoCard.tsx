@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, Calendar } from 'lucide-react';
 import { TelegramPhoto } from '../types';
 
@@ -9,9 +9,16 @@ interface PhotoCardProps {
 
 export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [useFallbackDirect, setUseFallbackDirect] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const getInitialSrc = (url: string) => {
+  useEffect(() => {
+    setImageLoaded(false);
+    setUseFallbackDirect(false);
+    setImageError(false);
+  }, [photo.id, photo.url]);
+
+  const getProxyUrl = (url: string) => {
     if (!url) return '';
     if (url.startsWith('/api/proxy-image')) return url;
     if (url.includes('images.unsplash.com') || url.startsWith('data:')) return url;
@@ -19,12 +26,11 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
     return url;
   };
 
-  const [currentSrc, setCurrentSrc] = useState<string>(() => getInitialSrc(photo.url));
+  const imageSrc = useFallbackDirect ? photo.url : getProxyUrl(photo.url);
 
   const handleImgError = () => {
-    if (currentSrc.startsWith('/api/proxy-image') && photo.url && photo.url.startsWith('http')) {
-      // Fallback to direct URL without proxy
-      setCurrentSrc(photo.url);
+    if (!useFallbackDirect && photo.url && photo.url.startsWith('http')) {
+      setUseFallbackDirect(true);
     } else {
       setImageError(true);
     }
@@ -42,25 +48,22 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
       <div className="relative overflow-hidden bg-slate-950 w-full aspect-[16/10]">
         {!imageLoaded && !imageError && (
           <div className="absolute inset-0 bg-slate-900/80 animate-pulse flex items-center justify-center">
-            <div className="w-7 h-7 border-2 border-sky-500/20 border-t-sky-500 rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-sky-500/20 border-t-sky-500 rounded-full animate-spin" />
           </div>
         )}
 
         {imageError ? (
           <div className="absolute inset-0 flex items-center justify-center p-4 text-center bg-slate-900 text-slate-500 text-xs">
-            图片加载异常
+            图片加载失败
           </div>
         ) : (
           <img
-            src={currentSrc}
+            src={imageSrc}
             alt={photo.title || 'Telegram Photo'}
-            loading="lazy"
             referrerPolicy="no-referrer"
             onLoad={() => setImageLoaded(true)}
             onError={handleImgError}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
-              imageLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         )}
 
@@ -103,3 +106,4 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
     </div>
   );
 };
+

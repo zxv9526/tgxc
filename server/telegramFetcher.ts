@@ -1,4 +1,4 @@
-import { parseTelegramWebHtml, cleanChannelHandle } from '../src/utils/telegram.js';
+import { parseTelegramWebHtml, cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 import { TelegramPhoto } from '../src/types.js';
 import { channelConfig, channelPhotos, setChannelPhotos } from './storage.js';
 
@@ -63,17 +63,19 @@ export function detectOlderMessages(photos: TelegramPhoto[], blockIds: number[],
 export function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any, handle: string): void {
   if (newPhotos.length === 0) return;
 
-  const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
+  const existingPhotosMap = new Map(channelPhotos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url)).map(p => [p.id, p]));
   newPhotos.forEach(p => {
-    existingPhotosMap.set(p.id, {
-      id: p.id,
-      title: p.title || '',
-      description: p.description || '',
-      url: p.url,
-      date: p.date,
-      timestamp: p.timestamp,
-      messageId: p.messageId
-    });
+    if (p && p.url && !isJunkOrEmojiUrl(p.url)) {
+      existingPhotosMap.set(p.id, {
+        id: p.id,
+        title: p.title || '',
+        description: p.description || '',
+        url: p.url,
+        date: p.date,
+        timestamp: p.timestamp,
+        messageId: p.messageId
+      });
+    }
   });
 
   const updatedPhotos = Array.from(existingPhotosMap.values())

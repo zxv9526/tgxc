@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { TelegramPhoto } from '../src/types.js';
 import { defaultPhotos } from '../src/data/default_photos.js';
-import { cleanChannelHandle } from '../src/utils/telegram.js';
+import { cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 
 const cacheFilePath = path.join(process.cwd(), 'channel_photos_cache.json');
 
@@ -23,7 +23,7 @@ export function loadCacheFromDisk(): void {
       const data = fs.readFileSync(cacheFilePath, 'utf8');
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        channelPhotos = parsed;
+        channelPhotos = parsed.filter((p: TelegramPhoto) => p && p.url && !isJunkOrEmojiUrl(p.url));
       }
     }
   } catch (e) {
@@ -31,15 +31,20 @@ export function loadCacheFromDisk(): void {
   }
 
   if (!channelPhotos || channelPhotos.length === 0) {
-    channelPhotos = defaultPhotos.map(p => ({
-      id: p.id,
-      title: p.title,
-      description: p.description,
-      url: p.url,
-      date: p.date,
-      timestamp: p.timestamp,
-      messageId: p.messageId
-    }));
+    channelPhotos = defaultPhotos
+      .filter(p => p && p.url && !isJunkOrEmojiUrl(p.url))
+      .map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        url: p.url,
+        date: p.date,
+        timestamp: p.timestamp,
+        messageId: p.messageId
+      }));
+  } else {
+    // Save cleaned cache back to disk immediately
+    saveCacheToDisk();
   }
 }
 
@@ -52,6 +57,6 @@ export function saveCacheToDisk(): void {
 }
 
 export function setChannelPhotos(photos: TelegramPhoto[]): void {
-  channelPhotos = photos;
+  channelPhotos = photos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url));
   saveCacheToDisk();
 }

@@ -68,6 +68,26 @@ function parseViews(viewsStr: string): number {
   return isNaN(num) ? 120 : num;
 }
 
+export function isJunkOrEmojiUrl(url: string): boolean {
+  if (!url) return true;
+  const lower = url.toLowerCase();
+  if (lower.includes('.js') || lower.includes('.css') || lower.includes('.json') || lower.includes('.html')) return true;
+  if (lower.includes('telegram.org/img/emoji')) return true;
+  if (lower.includes('/emoji/')) return true;
+  if (lower.includes('sticker')) return true;
+  if (lower.includes('avatar')) return true;
+  if (lower.includes('userphoto') || lower.includes('user_photo')) return true;
+  if (lower.includes('reaction')) return true;
+  if (lower.endsWith('.svg')) return true;
+
+  const isTgCdnFile = lower.includes('telesco.pe/file/') || lower.includes('telegram-cdn.org/file/');
+  const isImageExt = /\.(?:jpg|jpeg|png|webp|gif)(\?|$)/i.test(lower);
+
+  if (!isTgCdnFile && !isImageExt) return true;
+
+  return false;
+}
+
 export function formatImageUrl(url: string): string {
   if (!url) return '';
   if (url.startsWith('//')) return 'https:' + url;
@@ -143,47 +163,37 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
     const imageUrls: string[] = [];
 
-    // Pattern 1: background / background-image url(...)
-    const bgRegex = /background(?:-image)?\s*:\s*url\(['"]?([^'"]+?)['"]?\)/gi;
-    let match;
-    while ((match = bgRegex.exec(postContentBlock)) !== null) {
-      let url = match[1];
+    // Step 1: Specifically extract photo attachment elements in Telegram widget HTML
+    const photoWrapMatches = cleanBlock.match(/<(?:a|div)[^>]*class=["'][^"']*(?:tgme_widget_message_photo_wrap|js-message_photo|tgme_widget_message_photo|tgme_widget_message_grouped_media_wrap)[^"']*["'][^>]*>/gi) || [];
+
+    for (const wrapTag of photoWrapMatches) {
+      const bgMatch = wrapTag.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
+      let url = bgMatch ? bgMatch[1] : null;
+      if (!url) {
+        const srcMatch = wrapTag.match(/(?:src|data-src)=["']([^"']+)["']/i);
+        if (srcMatch) url = srcMatch[1];
+      }
       if (url) {
-        url = url.replace(/["'\s\)]+$/, '').trim();
+        url = url.trim();
         if (url.startsWith('//')) url = 'https:' + url;
-        if (url.startsWith('http') && !imageUrls.includes(url) && !url.includes('avatar') && !url.includes('userphoto')) {
+        if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
           imageUrls.push(url);
         }
       }
     }
 
-    // Pattern 2: src, data-src, or href matching Telegram CDN or image files
-    const srcRegex = /(?:src|data-src|href)\s*=\s*["']([^"']+)["']/gi;
-    while ((match = srcRegex.exec(postContentBlock)) !== null) {
-      let url = match[1];
-      if (url) {
-        url = url.replace(/["'\s\)]+$/, '').trim();
-        if (url.startsWith('//')) url = 'https:' + url;
-        if (
-          url.startsWith('http') &&
-          !imageUrls.includes(url) &&
-          !url.includes('avatar') &&
-          !url.includes('userphoto') &&
-          (url.includes('telesco.pe') || url.includes('telegram-cdn.org') || url.includes('telegram.org') || /\.(?:jpg|jpeg|png|webp)(\?|$)/i.test(url))
-        ) {
-          imageUrls.push(url);
-        }
-      }
-    }
-
-    // Pattern 3: Fallback direct CDN regex
-    const cdnRegex = /(https:\/\/(?:cdn\d*\.telesco\.pe|cdn\d*\.telegram-cdn\.org|telegram\.org)\/file\/[^\s"'\)<>]+)/gi;
-    while ((match = cdnRegex.exec(postContentBlock)) !== null) {
-      let url = match[1];
-      if (url) {
-        url = url.replace(/["'\s\)]+$/, '').trim();
-        if (!imageUrls.includes(url) && !url.includes('avatar') && !url.includes('userphoto')) {
-          imageUrls.push(url);
+    // Step 2: Fallback for video thumbnails or documents if no standard photo wraps were found
+    if (imageUrls.length === 0) {
+      const videoWrapMatches = cleanBlock.match(/<(?:a|div|i)[^>]*class=["'][^"']*(?:tgme_widget_message_videoplayer_thumb|tgme_widget_message_video_thumb|tgme_widget_message_document_thumb)[^"']*["'][^>]*>/gi) || [];
+      for (const wrapTag of videoWrapMatches) {
+        const bgMatch = wrapTag.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
+        let url = bgMatch ? bgMatch[1] : null;
+        if (url) {
+          url = url.trim();
+          if (url.startsWith('//')) url = 'https:' + url;
+          if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
+            imageUrls.push(url);
+          }
         }
       }
     }
