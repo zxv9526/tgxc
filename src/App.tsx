@@ -6,8 +6,8 @@ import { Header } from './components/Header';
 import { TagFilter } from './components/TagFilter';
 import { BlogCard } from './components/BlogCard';
 import { ArticleModal } from './components/ArticleModal';
-import { LightboxModal } from './components/LightboxModal';
-import { Radio, RefreshCw, FileText, ChevronDown, Layers, SearchX } from 'lucide-react';
+import { LightboxModal, LightboxImageItem } from './components/LightboxModal';
+import { RefreshCw, ChevronDown, Layers, SearchX } from 'lucide-react';
 
 export function App() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -20,7 +20,10 @@ export function App() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   const [selectedArticle, setSelectedArticle] = useState<BlogPost | null>(null);
-  const [lightboxInfo, setLightboxInfo] = useState<{ url: string; title: string } | null>(null);
+  const [lightboxState, setLightboxState] = useState<{
+    images: LightboxImageItem[];
+    currentIndex: number;
+  } | null>(null);
 
   const [visibleCount, setVisibleCount] = useState(24);
 
@@ -127,17 +130,42 @@ export function App() {
     return filteredPosts.slice(0, visibleCount);
   }, [filteredPosts, visibleCount]);
 
-  // Transform current lightbox photo for LightboxModal compatibility
-  const activeLightboxPhoto = useMemo(() => {
-    if (!lightboxInfo) return null;
-    return {
-      id: 'lightbox',
-      title: lightboxInfo.title,
-      description: '',
-      url: lightboxInfo.url,
-      date: new Date().toISOString().split('T')[0]
-    } as TelegramPhoto;
-  }, [lightboxInfo]);
+  const handleOpenImage = useCallback((url: string, title?: string, postPhotos?: string[], currentIdx: number = 0) => {
+    if (postPhotos && postPhotos.length > 1) {
+      const images: LightboxImageItem[] = postPhotos.map((pUrl, i) => ({
+        url: pUrl,
+        title: `${title || '图片'} (${i + 1}/${postPhotos.length})`,
+      }));
+      setLightboxState({ images, currentIndex: currentIdx });
+    } else {
+      const allImages: LightboxImageItem[] = [];
+      let foundIdx = -1;
+
+      filteredPosts.forEach(p => {
+        p.photos.forEach((pUrl, i) => {
+          const itemTitle = p.photos.length > 1 ? `${p.title} (${i + 1}/${p.photos.length})` : p.title;
+          allImages.push({
+            url: pUrl,
+            title: itemTitle,
+            date: p.date
+          });
+          if (pUrl === url && foundIdx === -1) {
+            foundIdx = allImages.length - 1;
+          }
+        });
+      });
+
+      if (allImages.length === 0 && url) {
+        allImages.push({ url, title });
+        foundIdx = 0;
+      }
+
+      setLightboxState({
+        images: allImages,
+        currentIndex: foundIdx >= 0 ? foundIdx : 0
+      });
+    }
+  }, [filteredPosts]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-sky-500 selection:text-white flex flex-col antialiased">
@@ -157,28 +185,6 @@ export function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Banner Announcement */}
-        <div className="bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/60 border border-sky-500/20 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400">
-                <Radio className="w-4 h-4 animate-pulse" />
-              </span>
-              <h2 className="text-sm font-bold text-slate-100">
-                BroadcastChannel 频道博客模式
-              </h2>
-            </div>
-            <p className="text-xs text-slate-400 max-w-2xl">
-              已将 Telegram <span className="text-sky-400 font-medium">@{channelHandle}</span> 频道完美转为轻量级响应式博客。同步收录 {posts.length} 篇图文博文，支持实时搜索、Hashtag 标签筛选、相册轮播与沉浸式阅读。
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 text-xs font-semibold text-slate-300 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
-            <FileText className="w-3.5 h-3.5 text-sky-400" />
-            <span>实时同步 Telegram</span>
-          </div>
-        </div>
-
         {/* Popular Tags Filter Bar */}
         {popularTags.length > 0 && (
           <TagFilter
@@ -236,7 +242,7 @@ export function App() {
                 key={post.id}
                 post={post}
                 onOpenArticle={(p) => setSelectedArticle(p)}
-                onOpenImage={(url, title) => setLightboxInfo({ url, title })}
+                onOpenImage={handleOpenImage}
                 onSelectTag={(tag) => {
                   setSelectedTag(tag);
                   setVisibleCount(24);
@@ -265,7 +271,7 @@ export function App() {
         <div className="max-w-7xl mx-auto px-4 space-y-2">
           <p className="flex items-center justify-center gap-1.5 font-medium text-slate-400">
             <Layers className="w-4 h-4 text-sky-400" />
-            <span>BroadcastChannel • Telegram 频道博客转换系统</span>
+            <span>BroadcastChannel • Telegram 频道博客</span>
           </p>
           <p>
             源自 Telegram 频道{' '}
@@ -277,19 +283,21 @@ export function App() {
             >
               @{channelHandle}
             </a>{' '}
-            • 实时同步 & 网页全屏浏览
+            • 实时同步 & 网页阅读
           </p>
         </div>
       </footer>
 
       {/* Lightbox Image Preview Modal */}
       <LightboxModal
-        photo={activeLightboxPhoto}
-        onClose={() => setLightboxInfo(null)}
-        onNext={() => {}}
-        onPrev={() => {}}
-        hasNext={false}
-        hasPrev={false}
+        images={lightboxState?.images || []}
+        currentIndex={lightboxState?.currentIndex ?? 0}
+        onClose={() => setLightboxState(null)}
+        onNavigate={(idx) => {
+          if (lightboxState) {
+            setLightboxState({ ...lightboxState, currentIndex: idx });
+          }
+        }}
       />
 
       {/* Article Reader Modal */}
@@ -298,7 +306,7 @@ export function App() {
         allPosts={filteredPosts}
         onClose={() => setSelectedArticle(null)}
         onNavigate={(p) => setSelectedArticle(p)}
-        onOpenImage={(url, title) => setLightboxInfo({ url, title })}
+        onOpenImage={handleOpenImage}
       />
     </div>
   );

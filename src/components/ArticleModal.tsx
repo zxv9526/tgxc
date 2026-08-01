@@ -7,7 +7,7 @@ interface ArticleModalProps {
   allPosts: BlogPost[];
   onClose: () => void;
   onNavigate: (post: BlogPost) => void;
-  onOpenImage: (url: string, title: string) => void;
+  onOpenImage: (url: string, title: string, postPhotos?: string[], photoIndex?: number) => void;
 }
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({
@@ -117,7 +117,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               {post.photos.map((imgUrl, idx) => (
                 <div
                   key={idx}
-                  onClick={() => onOpenImage(imgUrl, `${post.title} (${idx + 1}/${post.photos.length})`)}
+                  onClick={() => onOpenImage(imgUrl, post.title, post.photos, idx)}
                   className="group relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 max-h-[500px] flex items-center justify-center cursor-zoom-in"
                 >
                   <img

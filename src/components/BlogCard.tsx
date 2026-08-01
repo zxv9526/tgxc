@@ -5,7 +5,7 @@ import { BlogPost } from '../types';
 interface BlogCardProps {
   post: BlogPost;
   onOpenArticle: (post: BlogPost) => void;
-  onOpenImage: (url: string, title: string) => void;
+  onOpenImage: (url: string, title: string, postPhotos?: string[], photoIndex?: number) => void;
   onSelectTag?: (tag: string) => void;
 }
 
@@ -147,7 +147,7 @@ export const BlogCard: React.FC<BlogCardProps> = ({
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                onOpenImage(post.photos[0], post.title);
+                onOpenImage(post.photos[0], post.title, post.photos, 0);
               }}
               className="relative aspect-[16/10] sm:aspect-[16/9] w-full overflow-hidden bg-slate-950 group/img cursor-zoom-in"
             >
@@ -182,7 +182,7 @@ export const BlogCard: React.FC<BlogCardProps> = ({
                     key={idx}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenImage(imgUrl, `${post.title} (${idx + 1}/${post.photos.length})`);
+                      onOpenImage(imgUrl, post.title, post.photos, idx);
                     }}
                     className="relative aspect-square rounded-lg overflow-hidden bg-slate-900 group/subimg cursor-zoom-in border border-slate-800/60"
                   >
