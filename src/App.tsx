@@ -31,6 +31,7 @@ import {
   formatImageUrl,
   TelegramPhoto
 } from './utils/telegram';
+import { defaultPhotos } from './data/default_photos';
 
 function safeBtoa(str: string): string {
   try {
@@ -519,12 +520,13 @@ export default function App() {
           }
           setIsLoading(false);
         } else {
-          setErrorMsg(`未能在公开频道 @${handleToLoad} 中获取到照片，可能是因为该频道是私密的或暂无包含图片的帖子。`);
+          console.log('Client sync returned no photos, loading fallback dataset...');
+          setPhotos(defaultPhotos);
           setIsLoading(false);
         }
       } catch (err) {
-        console.warn('Client parser error:', err);
-        setErrorMsg('加载图片失败，请稍后重试。');
+        console.warn('Client parser error, loading fallback dataset:', err);
+        setPhotos(defaultPhotos);
         setIsLoading(false);
       }
     }

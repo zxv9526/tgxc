@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import { parseTelegramWebHtml, cleanChannelHandle, TelegramPhoto } from './src/utils/telegram.js';
+import { defaultPhotos } from './src/data/default_photos.js';
 
 dotenv.config();
 
@@ -42,6 +43,11 @@ try {
   }
 } catch (e) {
   console.warn('[Cache Load] Error loading photos cache:', e);
+}
+
+if (!channelPhotos || channelPhotos.length === 0) {
+  channelPhotos = [...defaultPhotos];
+  console.log(`[Fallback Init] Initialized with ${defaultPhotos.length} high-quality default fallback photos.`);
 }
 
 try {
