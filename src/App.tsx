@@ -1138,15 +1138,6 @@ export default function App() {
                     </span>
                   )}
                 </div>
-
-                <button
-                  onClick={handleManualSync}
-                  disabled={isSyncing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 hover:bg-slate-900 disabled:opacity-50 border border-slate-850 text-sky-400 hover:text-sky-300 font-bold text-[11px] rounded-lg transition-colors cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? '同步中' : '同步获取最新图片'}</span>
-                </button>
               </div>
 
             </div>
