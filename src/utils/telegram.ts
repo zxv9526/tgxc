@@ -78,7 +78,12 @@ export function formatImageUrl(url: string): string {
     url.includes('telegram.org') ||
     url.includes('t.me')
   ) {
-    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    try {
+      const enc = btoa(unescape(encodeURIComponent(url)));
+      return `/api/proxy-image?enc=${enc}`;
+    } catch (e) {
+      return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    }
   }
   return url;
 }

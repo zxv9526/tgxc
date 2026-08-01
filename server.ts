@@ -92,7 +92,17 @@ app.all('/api/telegram/sync', async (req, res) => {
 
 // Image Proxy Endpoint to bypass Telegram CDN Referrer / CORS restrictions
 app.get('/api/proxy-image', async (req, res) => {
-  const imageUrl = req.query.url as string;
+  let imageUrl = req.query.url as string;
+  const encUrl = req.query.enc as string;
+
+  if (encUrl) {
+    try {
+      imageUrl = Buffer.from(encUrl, 'base64').toString('utf-8');
+    } catch (e) {
+      return res.status(400).send('Invalid encoded URL');
+    }
+  }
+
   if (!imageUrl || !imageUrl.startsWith('http')) {
     return res.status(400).send('Invalid URL');
   }
@@ -109,6 +119,21 @@ app.get('/api/proxy-image', async (req, res) => {
     }
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Support JSON base64 mode for clients that prefer data URLs
+    if (req.query.b64 === 'true' || req.query.json === 'true') {
+      const b64Str = buffer.toString('base64');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.json({
+        success: true,
+        dataUrl: `data:${contentType};base64,${b64Str}`,
+        contentType,
+        size: buffer.length
+      });
+    }
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -118,8 +143,7 @@ app.get('/api/proxy-image', async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    res.send(Buffer.from(arrayBuffer));
+    res.send(buffer);
   } catch (err) {
     console.error('Image proxy error:', err);
     res.status(500).send('Proxy error');
@@ -232,7 +256,8 @@ app.get('/api/config', (req, res) => {
     bannerUrl: channelConfig.bannerUrl,
     avatarUrl: channelConfig.avatarUrl,
     totalMembers: channelConfig.totalMembers,
-    appUrl: process.env.APP_URL || ''
+    appUrl: process.env.APP_URL || '',
+    handle: channelConfig.handle
   });
 });
 

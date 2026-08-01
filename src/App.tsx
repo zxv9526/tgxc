@@ -1,5 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Download, AlertCircle, Loader2, X, Play, Pause, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  Download,
+  AlertCircle,
+  Loader2,
+  X,
+  Play,
+  Pause,
+  ChevronUp,
+  RefreshCw,
+  Share2,
+  ExternalLink,
+  Copy,
+  Check,
+  Maximize2,
+  Minimize2,
+  LayoutGrid,
+  Square,
+  Calendar,
+  Tag,
+  Eye,
+  Heart,
+  Compass,
+  Search,
+  ArrowLeft,
+  ArrowRight
+} from 'lucide-react';
 import {
   fetchTelegramChannelFromClient,
   cleanChannelHandle,
@@ -7,248 +32,491 @@ import {
   TelegramPhoto
 } from './utils/telegram';
 
-// Subcomponent to render each image with smooth states and robust error fallbacks
+function safeBtoa(str: string): string {
+  try {
+    return btoa(unescape(encodeURIComponent(str)));
+  } catch (e) {
+    try {
+      return btoa(str);
+    } catch (err) {
+      return '';
+    }
+  }
+}
+
+function safeAtob(str: string): string {
+  try {
+    return decodeURIComponent(escape(atob(str)));
+  } catch (e) {
+    try {
+      return atob(str);
+    } catch (err) {
+      return '';
+    }
+  }
+}
+
+// Subcomponent to render each image with smooth states, blob decoding, and robust error fallbacks
 function ScrollableImage({
   photo,
-  onClick
+  onClick,
+  onCopyLink,
+  onLike,
+  onTagClick
 }: {
   photo: TelegramPhoto;
   onClick: () => void;
+  onCopyLink?: (url: string) => void;
+  onLike: (photoId: string, e?: React.MouseEvent) => void;
+  onTagClick?: (tag: string) => void;
 }) {
-  const [imgSrc, setImgSrc] = useState<string>('');
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [descExpanded, setDescExpanded] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    let objectUrl = '';
-
-    async function loadImage() {
-      setStatus('loading');
-      
-      // Extract the raw image URL if it's already wrapped in our local proxy URL
-      let rawImgUrl = photo.url;
-      if (photo.url.startsWith('/api/proxy-image') || photo.url.includes('/api/proxy-image?url=')) {
-        const parts = photo.url.split('/api/proxy-image?url=');
-        if (parts[1]) {
-          rawImgUrl = decodeURIComponent(parts[1]);
-        }
+  // Extract raw direct image URL from wrapped proxy URL
+  let rawImgUrl = photo.url;
+  if (photo.url.includes('/api/proxy-image')) {
+    try {
+      const urlObj = new URL(photo.url, window.location.origin);
+      const enc = urlObj.searchParams.get('enc');
+      const plain = urlObj.searchParams.get('url');
+      if (enc) {
+        rawImgUrl = safeAtob(enc);
+      } else if (plain) {
+        rawImgUrl = plain;
       }
-
-      // We will try these sources sequentially:
-      // 1. Local Express API proxy endpoint (works in normal tabs)
-      // 2. Public CORS proxy 1: corsproxy.io (works inside iframe/sandboxes without cookies)
-      // 3. Public CORS proxy 2: allorigins.win (backup public CORS proxy)
-      // 4. Raw direct Telegram CDN URL (last resort)
-      const sources = [
-        `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(rawImgUrl)}`,
-        rawImgUrl
-      ];
-
-      for (const src of sources) {
-        if (!active) return;
-        try {
-          const response = await fetch(src);
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || '';
-            // If the response is HTML, it means we hit a platform redirect or cookie check block, skip!
-            if (contentType.includes('html')) {
-              continue;
-            }
-            
-            const blob = await response.blob();
-            if (blob.type.includes('html')) {
-              continue; // Skip if parsed blob is HTML
-            }
-            
-            if (active) {
-              objectUrl = URL.createObjectURL(blob);
-              setImgSrc(objectUrl);
-              setStatus('loaded');
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed to load image from source ${src}:`, err);
-        }
-      }
-
-      // If all proxy methods fail, set raw direct URL as last-resort fallback
-      if (active) {
-        setImgSrc(rawImgUrl);
-        setStatus('loaded');
+    } catch (e) {
+      if (photo.url.includes('?url=')) {
+        rawImgUrl = decodeURIComponent(photo.url.split('?url=')[1]);
+      } else if (photo.url.includes('?enc=')) {
+        rawImgUrl = safeAtob(photo.url.split('?enc=')[1]);
       }
     }
+  }
 
-    loadImage();
+  const sources = [
+    `/api/proxy-image?enc=${safeBtoa(rawImgUrl)}`,
+    `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+    rawImgUrl,
+    `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`
+  ];
 
-    return () => {
-      active = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
+  const currentSrc = sources[sourceIndex] || rawImgUrl;
+
+  const handleLoad = () => setStatus('loaded');
+  const handleError = () => {
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex(prev => prev + 1);
+    } else {
+      setStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setStatus('loading');
   }, [photo.url]);
 
   return (
-    <div
-      onClick={onClick}
-      className="group relative w-full bg-slate-900/40 border border-slate-900/60 hover:border-slate-800/80 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 flex items-center justify-center min-h-[300px] shadow-lg shadow-black/40"
-    >
-      {/* Loading state spinner */}
-      {status === 'loading' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 gap-2">
-          <Loader2 className="w-6 h-6 animate-spin text-sky-400" />
-          <span className="text-xs text-slate-500">正在载入图片...</span>
-        </div>
-      )}
+    <div className="flex flex-col bg-slate-900/40 border border-slate-900 hover:border-slate-800/80 rounded-2xl overflow-hidden transition-all duration-300 shadow-xl group">
+      {/* Image Area */}
+      <div
+        onClick={onClick}
+        className="relative w-full overflow-hidden cursor-pointer flex flex-col items-center justify-center min-h-[260px] bg-slate-950/40"
+      >
+        {/* Loading state spinner */}
+        {status === 'loading' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-sky-400" />
+            <span className="text-xs text-slate-500">正在载入图片...</span>
+          </div>
+        )}
 
-      {/* Error state fallback */}
-      {status === 'error' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/95 gap-3 p-6 text-center select-text">
-          <AlertCircle className="w-8 h-8 text-rose-500 animate-pulse" />
-          <p className="text-xs text-slate-400 max-w-md">
-            该图片链接加载受限或失效。这通常是因为 Telegram 临时限制了跨域图片加载。
-          </p>
-          <a
-            href={photo.url.includes('/api/proxy-image?url=') ? decodeURIComponent(photo.url.split('/api/proxy-image?url=')[1]) : photo.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-1 px-4 py-2 bg-slate-800 hover:bg-slate-755 text-sky-400 text-xs font-semibold rounded-lg border border-slate-700/50 transition-colors"
-          >
-            尝试直接在浏览器新标签页中打开
-          </a>
-        </div>
-      )}
+        {/* Error state fallback */}
+        {status === 'error' && (
+          <div className="flex flex-col items-center justify-center bg-slate-900/95 gap-3 p-6 text-center select-text w-full min-h-[260px]">
+            <AlertCircle className="w-8 h-8 text-rose-500 animate-pulse" />
+            <p className="text-xs text-slate-400 max-w-md">
+              图片载入出现阻碍，可点击重新加载或直接访问原图。
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSourceIndex(0);
+                  setStatus('loading');
+                }}
+                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                重新加载
+              </button>
+              <a
+                href={rawImgUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded-lg border border-slate-700/50 transition-colors"
+              >
+                打开原图
+              </a>
+            </div>
+          </div>
+        )}
 
-      {imgSrc && (
         <img
-          src={imgSrc}
-          alt="Telegram Photo"
-          onLoad={() => setStatus('loaded')}
-          onError={() => setStatus('error')}
-          className={`max-h-[85vh] w-auto max-w-full object-contain group-hover:scale-[1.01] transition-all duration-500 rounded-lg ${
+          src={currentSrc}
+          alt={photo.title || 'Telegram Photo'}
+          referrerPolicy="no-referrer"
+          onLoad={handleLoad}
+          onError={handleError}
+          className={`max-h-[70vh] w-auto max-w-full object-contain group-hover:scale-[1.015] transition-all duration-500 ${
             status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95 absolute pointer-events-none'
           }`}
         />
-      )}
-      
-      {/* Dynamic Hover Indicator */}
-      {status === 'loaded' && (
-        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <span className="text-xs text-white/90 bg-slate-950/80 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm tracking-wider font-medium">
-            点击放大图片
-          </span>
+
+        {/* Hover quick tip overlay */}
+        {status === 'loaded' && (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-end justify-center pb-4 pointer-events-none">
+            <span className="text-xs text-white bg-sky-500/90 font-medium tracking-wider px-3.5 py-1.5 rounded-full border border-sky-400/40 shadow-xl backdrop-blur-sm pointer-events-auto transition-transform duration-300 group-hover:translate-y-0 translate-y-2">
+              点击放大图片 🔍
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Info Card Body */}
+      <div className="p-4 sm:p-5 flex flex-col gap-3 bg-slate-950/25 border-t border-slate-900">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-sm sm:text-base font-bold text-white tracking-tight line-clamp-1 group-hover:text-sky-400 transition-colors">
+              {photo.title}
+            </h2>
+            <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+              <Calendar className="w-3 h-3 text-slate-600" />
+              <span>{photo.date}</span>
+              {photo.album && (
+                <>
+                  <span>•</span>
+                  <span className="text-sky-400 font-semibold">{photo.album}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {onCopyLink && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyLink(rawImgUrl);
+              }}
+              className="p-2 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-800 transition-all cursor-pointer shadow-sm hover:scale-105"
+              title="复制原图链接"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
-      )}
+
+        {/* Description */}
+        {photo.description && (
+          <div className="text-xs text-slate-300 leading-relaxed font-normal">
+            <p className={descExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}>
+              {photo.description}
+            </p>
+            {photo.description.length > 80 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDescExpanded(!descExpanded);
+                }}
+                className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold mt-1 cursor-pointer hover:underline"
+              >
+                {descExpanded ? '收起详情' : '展开全文'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Tags */}
+        {photo.tags && photo.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {photo.tags.map((tag) => (
+              <button
+                key={tag}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onTagClick) onTagClick(tag);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-900 hover:bg-slate-850 border border-slate-800/80 rounded-md text-[10px] text-slate-400 hover:text-sky-400 transition-colors cursor-pointer"
+              >
+                <Tag className="w-2.5 h-2.5 text-slate-500" />
+                <span>#{tag}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Interactions Row */}
+        <div className="flex items-center justify-between border-t border-slate-900/80 pt-3 mt-1 text-xs text-slate-400">
+          <div className="flex items-center gap-4 font-semibold">
+            {/* Views */}
+            <div className="flex items-center gap-1.5 text-slate-500">
+              <Eye className="w-4 h-4 text-slate-600" />
+              <span>{photo.views || 0} 次阅读</span>
+            </div>
+
+            {/* Likes (Interactive) */}
+            <button
+              onClick={(e) => onLike(photo.id, e)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/10 hover:border-rose-500/20 text-rose-400 transition-all cursor-pointer group/like active:scale-95"
+            >
+              <Heart className="w-4 h-4 fill-rose-500/10 group-hover/like:fill-rose-500/30 transition-colors animate-pulse" />
+              <span>{photo.likes || 0} 点赞</span>
+            </button>
+          </div>
+
+          {photo.telegramUrl && (
+            <a
+              href={photo.telegramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 hover:underline font-semibold"
+            >
+              <span>查看 Telegram 原帖</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-// Subcomponent to load and render the magnified image inside the lightbox
+// Subcomponent to load and render the magnified image inside the lightbox modal
 function LightboxImage({
   photo,
-  onDownload
+  onDownload,
+  onCopyLink,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext
 }: {
   photo: TelegramPhoto;
   onDownload: () => void;
+  onCopyLink: (url: string) => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }) {
-  const [imgSrc, setImgSrc] = useState<string>('');
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [isZoomed, setIsZoomed] = useState<boolean>(false);
 
-  useEffect(() => {
-    let active = true;
-    let objectUrl = '';
-
-    async function loadImage() {
-      setStatus('loading');
-      
-      let rawImgUrl = photo.url;
-      if (photo.url.startsWith('/api/proxy-image') || photo.url.includes('/api/proxy-image?url=')) {
-        const parts = photo.url.split('/api/proxy-image?url=');
-        if (parts[1]) {
-          rawImgUrl = decodeURIComponent(parts[1]);
-        }
+  let rawImgUrl = photo.url;
+  if (photo.url.includes('/api/proxy-image')) {
+    try {
+      const urlObj = new URL(photo.url, window.location.origin);
+      const enc = urlObj.searchParams.get('enc');
+      const plain = urlObj.searchParams.get('url');
+      if (enc) {
+        rawImgUrl = safeAtob(enc);
+      } else if (plain) {
+        rawImgUrl = plain;
       }
-
-      const sources = [
-        `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(rawImgUrl)}`,
-        rawImgUrl
-      ];
-
-      for (const src of sources) {
-        if (!active) return;
-        try {
-          const response = await fetch(src);
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('html')) {
-              continue;
-            }
-            const blob = await response.blob();
-            if (blob.type.includes('html')) {
-              continue;
-            }
-            if (active) {
-              objectUrl = URL.createObjectURL(blob);
-              setImgSrc(objectUrl);
-              setStatus('loaded');
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed loading image in lightbox from ${src}:`, err);
-        }
-      }
-
-      if (active) {
-        setImgSrc(rawImgUrl);
-        setStatus('loaded');
+    } catch (e) {
+      if (photo.url.includes('?url=')) {
+        rawImgUrl = decodeURIComponent(photo.url.split('?url=')[1]);
+      } else if (photo.url.includes('?enc=')) {
+        rawImgUrl = safeAtob(photo.url.split('?enc=')[1]);
       }
     }
+  }
 
-    loadImage();
+  const sources = [
+    `/api/proxy-image?enc=${safeBtoa(rawImgUrl)}`,
+    `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+    rawImgUrl,
+    `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`
+  ];
 
-    return () => {
-      active = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
+  const currentSrc = sources[sourceIndex] || rawImgUrl;
+
+  const handleLoad = () => setStatus('loaded');
+  const handleError = () => {
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex(prev => prev + 1);
+    } else {
+      setStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    setSourceIndex(0);
+    setStatus('loading');
   }, [photo.url]);
 
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-[300px] w-full">
+    <div className="relative flex flex-col items-center justify-center min-h-[300px] w-full px-2 sm:px-12">
+      
+      {/* Navigation Arrow buttons */}
+      {onPrev && hasPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrev();
+          }}
+          className="absolute left-1 sm:left-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 rounded-full bg-slate-900/85 hover:bg-slate-850 text-white border border-slate-800 hover:scale-110 transition-all cursor-pointer shadow-2xl shrink-0"
+          title="上一张 (← 键)"
+        >
+          <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
+      )}
+
+      {onNext && hasNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNext();
+          }}
+          className="absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 rounded-full bg-slate-900/85 hover:bg-slate-850 text-white border border-slate-800 hover:scale-110 transition-all cursor-pointer shadow-2xl shrink-0"
+          title="下一张 (→ 键)"
+        >
+          <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
+      )}
+
       {status === 'loading' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/20 py-20">
           <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
           <span className="text-xs text-slate-400">正在载入高清原图...</span>
         </div>
       )}
 
-      {imgSrc && (
-        <img
-          src={imgSrc}
-          alt="Magnified Original"
-          className={`max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-2xl transition-all duration-300 ${
-            status === 'loaded' ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-          }`}
-        />
+      {status === 'error' && (
+        <div className="flex flex-col items-center justify-center gap-3 p-6 text-center select-text bg-slate-900/50 rounded-2xl border border-slate-800 my-10">
+          <AlertCircle className="w-8 h-8 text-rose-500 animate-pulse" />
+          <p className="text-sm text-slate-400 max-w-md">
+            原图加载受限，您可以直接在新标签页打开或下载。
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSourceIndex(0);
+                setStatus('loading');
+              }}
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              重试加载
+            </button>
+            <a
+              href={rawImgUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded-lg border border-slate-700/50"
+            >
+              在新标签页打开原图
+            </a>
+          </div>
+        </div>
       )}
 
+      <div className={`overflow-auto max-w-full ${isZoomed ? 'max-h-[85vh]' : ''} flex justify-center`}>
+        <img
+          src={currentSrc}
+          alt={photo.title || 'Magnified Original'}
+          referrerPolicy="no-referrer"
+          onLoad={handleLoad}
+          onError={handleError}
+          onClick={() => setIsZoomed(!isZoomed)}
+          className={`w-auto max-w-full rounded-xl shadow-2xl transition-all duration-300 cursor-zoom-in ${
+            isZoomed ? 'max-h-none scale-100 cursor-zoom-out' : 'max-h-[70vh] object-contain'
+          } ${status === 'loaded' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}
+        />
+      </div>
+
       {status === 'loaded' && (
-        <div className="mt-6 flex justify-center">
-          <button
-            onClick={onDownload}
-            className="px-8 py-3 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-sm sm:text-base rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
-          >
-            <Download className="w-5 h-5" />
-            <span>下载原图</span>
-          </button>
+        <div className="mt-6 flex flex-col items-center gap-4 w-full">
+          {/* Metadata Overlay inside Lightbox */}
+          <div className="w-full max-w-xl text-center px-4 bg-slate-900/40 p-4 rounded-xl border border-slate-900">
+            <h3 className="text-sm sm:text-base font-bold text-white mb-1">{photo.title}</h3>
+            {photo.description && (
+              <p className="text-xs text-slate-300 line-clamp-3 mb-2 whitespace-pre-wrap leading-relaxed">
+                {photo.description}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-2.5 text-[11px] text-slate-500 font-semibold">
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-slate-500" />
+                {photo.date}
+              </span>
+              <span>•</span>
+              <span className="text-sky-400">{photo.album || 'All'}</span>
+              <span>•</span>
+              <span className="flex items-center gap-1 text-slate-400">
+                <Eye className="w-3.5 h-3.5" />
+                {photo.views || 0}
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1 text-rose-400">
+                <Heart className="w-3 h-3 fill-rose-500/10" />
+                {photo.likes || 0}
+              </span>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={onDownload}
+              className="px-6 py-2.5 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>下载原图</span>
+            </button>
+
+            <button
+              onClick={() => setIsZoomed(!isZoomed)}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
+            >
+              {isZoomed ? (
+                <>
+                  <Minimize2 className="w-4 h-4 text-sky-400" />
+                  <span>适应屏幕</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-4 h-4 text-sky-400" />
+                  <span>100% 缩放</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => onCopyLink(rawImgUrl)}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
+            >
+              <Copy className="w-4 h-4 text-emerald-400" />
+              <span>复制原图链接</span>
+            </button>
+
+            {photo.telegramUrl && (
+              <a
+                href={photo.telegramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>打开 Telegram 原帖</span>
+              </a>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -256,55 +524,85 @@ function LightboxImage({
 }
 
 export default function App() {
-  // Use strictly amlhmfzl channel
-  const channelHandle = 'amlhmfzl';
+  const [channelHandle, setChannelHandle] = useState<string>('amlhmfzl');
+  const [channelInfo, setChannelInfo] = useState<any>({
+    channelName: 'Telegram 频道图集',
+    channelBio: 'Telegram 官方频道图集与精选摄影相册库。支持分类筛选、极速巡览与自动同步。',
+    bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop',
+    totalMembers: '12,450 关注',
+    handle: 'amlhmfzl'
+  });
 
   const [photos, setPhotos] = useState<TelegramPhoto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Filters & State
   const [filterMode, setFilterMode] = useState<'today' | 'all'>('today');
+  const [layoutMode, setLayoutMode] = useState<'stream' | 'grid'>('stream');
+  const [selectedAlbum, setSelectedAlbum] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'newest' | 'popular' | 'likes'>('newest');
+
+  // Custom handle search input
+  const [customChannelInput, setCustomChannelInput] = useState<string>('');
 
   // Auto-scrolling state
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
-  const [scrollSpeed, setScrollSpeed] = useState<number>(0.5); // pixels per frame normalized
+  const [scrollSpeed, setScrollSpeed] = useState<number>(0.75);
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
 
   // Lightbox magnification state
   const [activePhoto, setActivePhoto] = useState<TelegramPhoto | null>(null);
 
-  // Sync / fetch photos automatically on load
-  const loadPhotos = useCallback(async () => {
+  // Toast notification trigger
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+
+  // Load photos and sync channel info
+  const loadPhotosForHandle = useCallback(async (handleToLoad: string) => {
     setIsLoading(true);
     setErrorMsg(null);
+    setSelectedAlbum('All');
+    setSearchQuery('');
 
-    let initialPhotos: TelegramPhoto[] = [];
+    let loadedPhotos: TelegramPhoto[] = [];
 
-    // Step 1: Instantly load cached photos from our server's DB
+    // Step 1: Instantly load cached photos from DB
     try {
-      const res = await fetch(`/api/photos?channel=${encodeURIComponent(channelHandle)}`);
+      const res = await fetch(`/api/photos?channel=${encodeURIComponent(handleToLoad)}`);
       if (res.ok) {
         const data = await res.json();
-        // The API returns an object { photos, albums, info, totalCount }
         if (data && data.photos && data.photos.length > 0) {
-          initialPhotos = data.photos;
-          setPhotos(initialPhotos);
-          setIsLoading(false); // Disable spinner immediately since we have photos!
+          loadedPhotos = data.photos;
+          setPhotos(data.photos);
+          if (data.info) {
+            setChannelInfo(data.info);
+          }
+          setIsLoading(false);
         }
       }
     } catch (err) {
       console.warn('Failed to load cached photos:', err);
     }
 
-    // Step 2: Trigger Telegram sync in background to fetch latest updates (non-blocking)
+    // Step 2: Trigger Telegram sync in background to fetch latest updates
     try {
-      const syncPromise = fetch(`/api/telegram/sync?channel=${encodeURIComponent(channelHandle)}`)
+      const syncPromise = fetch(`/api/telegram/sync?channel=${encodeURIComponent(handleToLoad)}`)
         .then(async (syncRes) => {
           if (syncRes.ok && syncRes.headers.get('content-type')?.includes('application/json')) {
             const syncData = await syncRes.json();
             if (syncData.photos && syncData.photos.length > 0) {
               setPhotos(syncData.photos);
+              loadedPhotos = syncData.photos;
+              if (syncData.info) {
+                setChannelInfo(syncData.info);
+              }
               setIsLoading(false);
             }
           }
@@ -313,36 +611,82 @@ export default function App() {
           console.warn('Background sync error:', syncErr);
         });
 
-      // If we don't have any cached photos yet, we must wait for either the background sync or client-side scraper to finish
-      if (initialPhotos.length === 0) {
+      if (loadedPhotos.length === 0) {
         await syncPromise;
       }
     } catch (err) {
       console.warn('Sync handler error:', err);
     }
 
-    // Step 3: Client fallback parser (only if still no photos)
-    if (initialPhotos.length === 0 && photos.length === 0) {
+    // Step 3: Client fallback parser if still no photos
+    if (loadedPhotos.length === 0) {
       try {
-        const clientData = await fetchTelegramChannelFromClient(channelHandle);
+        const clientData = await fetchTelegramChannelFromClient(handleToLoad);
         if (clientData && clientData.photos.length > 0) {
           setPhotos(clientData.photos);
+          if (clientData.info) {
+            setChannelInfo(clientData.info);
+          }
           setIsLoading(false);
         } else {
-          setErrorMsg('未能在公开频道中获取到照片，请稍后刷新重试。');
+          setErrorMsg(`未能在公开频道 @${handleToLoad} 中获取到照片，可能是因为该频道是私密的或暂无包含图片的帖子。`);
           setIsLoading(false);
         }
       } catch (err) {
         console.warn('Client parser error:', err);
-        setErrorMsg('加载图片失败，请稍后刷新重试。');
+        setErrorMsg('加载图片失败，请稍后重试。');
         setIsLoading(false);
       }
     }
-  }, [channelHandle]);
+  }, []);
 
+  // Manual trigger to force re-sync with Telegram channel
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    showToast(`正在重新从 Telegram 频道 @${channelHandle} 同步最新图片...`);
+
+    try {
+      const syncRes = await fetch(`/api/telegram/sync?channel=${encodeURIComponent(channelHandle)}`);
+      if (syncRes.ok) {
+        const syncData = await syncRes.json();
+        if (syncData.photos && syncData.photos.length > 0) {
+          setPhotos(syncData.photos);
+          if (syncData.info) {
+            setChannelInfo(syncData.info);
+          }
+          showToast(`同步成功！已载入 ${syncData.photos.length} 张最新照片`);
+        } else {
+          showToast('同步完成，当前频道暂无新动态');
+        }
+      } else {
+        showToast('同步稍有延迟，将自动更新图片列表');
+      }
+    } catch (err) {
+      console.error('Manual sync error:', err);
+      showToast('同步失败，请检查网络后重试');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Initial load config on mount
   useEffect(() => {
-    loadPhotos();
-  }, [loadPhotos]);
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.handle) {
+          setChannelHandle(data.handle);
+          setChannelInfo(data);
+          loadPhotosForHandle(data.handle);
+        } else {
+          loadPhotosForHandle('amlhmfzl');
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load config, using fallback:', err);
+        loadPhotosForHandle('amlhmfzl');
+      });
+  }, [loadPhotosForHandle]);
 
   // Back to top scroll visibility listener
   useEffect(() => {
@@ -353,7 +697,7 @@ export default function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Premium Auto-Scroller Engine via requestAnimationFrame
+  // Auto-Scroller Engine via requestAnimationFrame
   useEffect(() => {
     if (!isAutoScrolling) return;
 
@@ -364,11 +708,9 @@ export default function App() {
       const delta = time - lastTime;
       lastTime = time;
 
-      // Base: at 60fps (16.67ms frame time), scroll pixels equal scrollSpeed.
       const pixelsToScroll = scrollSpeed * (delta / 16.666);
       window.scrollBy(0, pixelsToScroll);
 
-      // Stop if reached the end of the scroll container
       const scrollHeight = document.documentElement.scrollHeight;
       const currentScroll = window.scrollY + window.innerHeight;
       if (currentScroll >= scrollHeight - 3) {
@@ -385,7 +727,7 @@ export default function App() {
     };
   }, [isAutoScrolling, scrollSpeed]);
 
-  // Dynamic interrupt: pause auto-scrolling if user interacts with wheel, touch, drag
+  // Interrupt auto-scroll on user interaction
   useEffect(() => {
     if (!isAutoScrolling) return;
 
@@ -396,46 +738,117 @@ export default function App() {
     window.addEventListener('wheel', handleUserInteraction, { passive: true });
     window.addEventListener('touchmove', handleUserInteraction, { passive: true });
     window.addEventListener('mousedown', handleUserInteraction, { passive: true });
-    window.addEventListener('keydown', handleUserInteraction, { passive: true });
 
     return () => {
       window.removeEventListener('wheel', handleUserInteraction);
       window.removeEventListener('touchmove', handleUserInteraction);
       window.removeEventListener('mousedown', handleUserInteraction);
-      window.removeEventListener('keydown', handleUserInteraction);
     };
   }, [isAutoScrolling]);
 
-  // Handle direct file download for the magnified active image
-  const handleDownload = async (photo: TelegramPhoto) => {
-    const targetUrl = formatImageUrl(photo.url);
+  // Interact: Like Photo
+  const handleLike = async (photoId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    setPhotos(prev => prev.map(p => {
+      if (p.id === photoId) {
+        return { ...p, likes: (p.likes || 0) + 1 };
+      }
+      return p;
+    }));
+
+    if (activePhoto && activePhoto.id === photoId) {
+      setActivePhoto(prev => prev ? { ...prev, likes: (prev.likes || 0) + 1 } : null);
+    }
 
     try {
-      const res = await fetch(targetUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = `telegram-photo-${Date.now()}.jpg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+      const res = await fetch(`/api/photos/${encodeURIComponent(photoId)}/like`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.likes === 'number') {
+          setPhotos(prev => prev.map(p => {
+            if (p.id === photoId) {
+              return { ...p, likes: data.likes };
+            }
+            return p;
+          }));
+        }
+      }
     } catch (err) {
-      // Direct window download fallback
-      const downloadUrl = targetUrl.includes('?') 
-        ? `${targetUrl}&download=1` 
-        : `${targetUrl}?download=1`;
-      window.open(downloadUrl, '_blank');
+      console.warn('Failed to like on server:', err);
     }
   };
 
-  const getActiveImageSrc = () => {
-    if (!activePhoto) return '';
-    return formatImageUrl(activePhoto.url);
+  // Interact: Increment View Count
+  const handleView = async (photoId: string) => {
+    setPhotos(prev => prev.map(p => {
+      if (p.id === photoId) {
+        return { ...p, views: (p.views || 0) + 1 };
+      }
+      return p;
+    }));
+
+    try {
+      await fetch(`/api/photos/${encodeURIComponent(photoId)}/view`, { method: 'POST' });
+    } catch (err) {
+      console.warn('Failed to view on server:', err);
+    }
   };
 
-  // Helper to format today's date strictly in Beijing Time (Asia/Shanghai)
+  // Handle image download
+  const handleDownload = async (photo: TelegramPhoto) => {
+    let rawUrl = photo.url;
+    if (photo.url.includes('/api/proxy-image')) {
+      try {
+        const urlObj = new URL(photo.url, window.location.origin);
+        const enc = urlObj.searchParams.get('enc');
+        const plain = urlObj.searchParams.get('url');
+        if (enc) {
+          rawUrl = safeAtob(enc);
+        } else if (plain) {
+          rawUrl = plain;
+        }
+      } catch (e) {
+        if (photo.url.includes('?url=')) {
+          rawUrl = decodeURIComponent(photo.url.split('?url=')[1]);
+        } else if (photo.url.includes('?enc=')) {
+          rawUrl = safeAtob(photo.url.split('?enc=')[1]);
+        }
+      }
+    }
+
+    try {
+      const res = await fetch(rawUrl, { referrerPolicy: 'no-referrer' });
+      if (res.ok) {
+        const blob = await res.blob();
+        const bUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = bUrl;
+        a.download = `${photo.id || 'photo'}-${Date.now()}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(bUrl);
+        showToast('原图文件已成功触发下载！');
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback download via proxy
+    const proxyDownloadUrl = `/api/proxy-image?enc=${safeBtoa(rawUrl)}&download=1`;
+    window.open(proxyDownloadUrl, '_blank');
+    showToast('通过加密通道开始下载图片...');
+  };
+
+  const handleCopyLink = (url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('原图链接已复制到剪贴板！');
+    }).catch(() => {
+      showToast('复制失败，请手工选中链接');
+    });
+  };
+
+  // Format Beijing Date
   const getTodayString = () => {
     try {
       const formatter = new Intl.DateTimeFormat('zh-CN', {
@@ -450,7 +863,7 @@ export default function App() {
       const d = parts.find(p => p.type === 'day')?.value;
       if (y && m && d) return `${y}-${m}-${d}`;
     } catch (e) {}
-    // Fallback
+
     const d = new Date();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -465,95 +878,441 @@ export default function App() {
     : '';
   const targetDateString = hasTodayPhotos ? todayString : latestDateInChannel;
 
-  // Filter photos based on selection mode
-  const filteredPhotos = filterMode === 'today'
-    ? photos.filter(p => p.date === targetDateString)
-    : photos;
+  // Extract unique albums
+  const availableAlbums = useMemo(() => {
+    const list = new Set<string>();
+    photos.forEach(p => {
+      if (p.album) list.add(p.album);
+    });
+    return ['All', ...Array.from(list)];
+  }, [photos]);
+
+  // Compute processed and filtered photo stream
+  const processedPhotos = useMemo(() => {
+    let result = [...photos];
+
+    // Date range mode
+    if (filterMode === 'today') {
+      result = result.filter(p => p.date === targetDateString);
+    }
+
+    // Category
+    if (selectedAlbum !== 'All') {
+      result = result.filter(p => p.album === selectedAlbum);
+    }
+
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(p =>
+        p.title?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q) ||
+        p.tags?.some(t => t.toLowerCase().includes(q)) ||
+        p.album?.toLowerCase().includes(q)
+      );
+    }
+
+    // Sort order
+    if (sortBy === 'popular') {
+      result.sort((a, b) => (b.views || 0) - (a.views || 0));
+    } else if (sortBy === 'likes') {
+      result.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    } else {
+      result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+
+    return result;
+  }, [photos, filterMode, targetDateString, selectedAlbum, searchQuery, sortBy]);
+
+  // Slide-by-slide modal navigation calculations
+  const activePhotoIndex = useMemo(() => {
+    if (!activePhoto) return -1;
+    return processedPhotos.findIndex(p => p.id === activePhoto.id);
+  }, [activePhoto, processedPhotos]);
+
+  const hasPrev = activePhotoIndex > 0;
+  const hasNext = activePhotoIndex !== -1 && activePhotoIndex < processedPhotos.length - 1;
+
+  const handlePrevPhoto = useCallback(() => {
+    if (hasPrev) {
+      const prevPhoto = processedPhotos[activePhotoIndex - 1];
+      setActivePhoto(prevPhoto);
+      handleView(prevPhoto.id);
+    }
+  }, [activePhotoIndex, hasPrev, processedPhotos]);
+
+  const handleNextPhoto = useCallback(() => {
+    if (hasNext) {
+      const nextPhoto = processedPhotos[activePhotoIndex + 1];
+      setActivePhoto(nextPhoto);
+      handleView(nextPhoto.id);
+    }
+  }, [activePhotoIndex, hasNext, processedPhotos]);
+
+  // Keyboard controls inside lightbox
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!activePhoto) return;
+      if (e.key === 'Escape') {
+        setActivePhoto(null);
+      } else if (e.key === 'ArrowLeft') {
+        handlePrevPhoto();
+      } else if (e.key === 'ArrowRight') {
+        handleNextPhoto();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePhoto, handlePrevPhoto, handleNextPhoto]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-2 sm:p-6 select-none font-sans">
       
-      {/* Main Content Area - No Header */}
+      {/* Toast Notification Popup */}
+      {toastMsg && (
+        <div className="fixed top-5 z-50 bg-sky-500 text-white font-medium text-xs sm:text-sm px-5 py-2.5 rounded-full shadow-2xl border border-sky-400/40 animate-bounce flex items-center gap-2">
+          <Check className="w-4 h-4" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Main Content Area */}
       <main className="w-full max-w-4xl flex flex-col gap-6 py-4">
+        
+        {/* Channel Profile Header and Switcher */}
+        <div className="bg-slate-900/60 border border-slate-900 rounded-3xl overflow-hidden shadow-2xl">
+          {/* Channel Banner */}
+          <div className="h-44 sm:h-52 w-full relative overflow-hidden bg-slate-950">
+            <img
+              src={channelInfo?.bannerUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop'}
+              alt="Channel Banner"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover opacity-60 filter blur-sm scale-105"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 to-transparent" />
+          </div>
+
+          {/* Profile details */}
+          <div className="px-6 pb-6 relative -mt-16 sm: -mt-20 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-4 border-slate-900 shadow-2xl bg-slate-800 shrink-0">
+                <img
+                  src={channelInfo?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop'}
+                  alt="Channel Avatar"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 pb-1">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                    {channelInfo?.channelName || 'Telegram 频道图集'}
+                  </h1>
+                  <a
+                    href={`https://t.me/s/${channelHandle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 font-semibold text-[10px] rounded-full border border-sky-500/20"
+                  >
+                    @{channelHandle}
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
+                <p className="text-xs text-slate-400 line-clamp-2 max-w-xl">
+                  {channelInfo?.channelBio || '极速巡览与自动同步的 Telegram 官方频道图集库。'}
+                </p>
+                {channelInfo?.totalMembers && (
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    📊 {channelInfo.totalMembers}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Switcher Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = customChannelInput.trim();
+                if (trimmed) {
+                  const cleanHandle = trimmed.replace(/^https?:\/\/t\.me\/(s\/)?/, '').replace(/^@/, '').trim();
+                  if (cleanHandle) {
+                    setChannelHandle(cleanHandle);
+                    loadPhotosForHandle(cleanHandle);
+                    setCustomChannelInput('');
+                    showToast(`正在切换至频道 @${cleanHandle}...`);
+                  }
+                }
+              }}
+              className="flex gap-2 w-full md:w-auto shrink-0"
+            >
+              <div className="relative flex-1 md:w-56">
+                <span className="absolute left-3 top-2.5 text-slate-500 text-xs">@</span>
+                <input
+                  type="text"
+                  placeholder="探索其他频道 handle..."
+                  value={customChannelInput}
+                  onChange={(e) => setCustomChannelInput(e.target.value)}
+                  className="w-full pl-7 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/35 transition-all"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-sky-500/10 shrink-0 cursor-pointer"
+              >
+                探索
+              </button>
+            </form>
+          </div>
+
+          {/* Preset Channels Suggestions */}
+          <div className="px-6 py-3 border-t border-slate-900 bg-slate-950/40 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <Compass className="w-3 h-3 text-sky-400 shrink-0" />
+            <span className="font-semibold text-slate-400 shrink-0">热门推荐:</span>
+            {[
+              { label: 'TG官方图集', handle: 'amlhmfzl' },
+              { label: '极简壁纸', handle: 'beautiful_wallpapers' },
+              { label: '风光摄影', handle: 'scenery_pic' },
+              { label: '3D视觉', handle: 'wallpaper_3d' },
+              { label: '黑白美学', handle: 'bw_photography' }
+            ].map((preset) => (
+              <button
+                key={preset.handle}
+                onClick={() => {
+                  setChannelHandle(preset.handle);
+                  loadPhotosForHandle(preset.handle);
+                  showToast(`正在载入 ${preset.label} 图集...`);
+                }}
+                className={`px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                  channelHandle === preset.handle
+                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-400 font-bold'
+                    : 'bg-slate-900 border-slate-900 hover:border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-40 gap-3 text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin text-sky-400" />
-            <p className="text-xs">加载图片中...</p>
+            <p className="text-xs">智能解析载入 Telegram 图片中...</p>
           </div>
         ) : errorMsg ? (
           <div className="flex flex-col items-center justify-center py-24 gap-3 text-center text-rose-300 bg-slate-900/40 border border-slate-900 rounded-2xl p-6">
             <AlertCircle className="w-8 h-8 text-rose-400" />
             <p className="text-xs max-w-md">{errorMsg}</p>
             <button
-              onClick={loadPhotos}
+              onClick={() => loadPhotosForHandle(channelHandle)}
               className="mt-2 px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-medium cursor-pointer border border-slate-700 transition-colors"
             >
               重新加载
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-6">
-            {/* Elegant Sub-navigation Filter Bar */}
-            <div className="flex items-center justify-between border-b border-slate-900 pb-4">
-              <div className="flex gap-2">
+          <div className="flex flex-col gap-6 animate-fade-in">
+            
+            {/* Control Dashboard Panel */}
+            <div className="bg-slate-900/40 border border-slate-900 p-4 sm:p-5 rounded-3xl flex flex-col gap-4">
+              
+              {/* Row 1: Filters Mode, Layout, and Search */}
+              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                
+                {/* Switchers (Today vs All, Stream vs Grid) */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setFilterMode('today')}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
+                      filterMode === 'today'
+                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
+                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
+                    }`}
+                  >
+                    {hasTodayPhotos ? '今日图片' : '最新更新'}
+                  </button>
+                  <button
+                    onClick={() => setFilterMode('all')}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
+                      filterMode === 'all'
+                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
+                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
+                    }`}
+                  >
+                    全部历史 ({photos.length})
+                  </button>
+
+                  <div className="h-5 w-px bg-slate-800/80 mx-1" />
+
+                  {/* Layout mode buttons */}
+                  <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-900">
+                    <button
+                      onClick={() => setLayoutMode('stream')}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        layoutMode === 'stream' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                      title="高清画质流"
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setLayoutMode('grid')}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        layoutMode === 'grid' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                      title="拼图网格"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right: Search Box */}
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="在频道图片中筛选标题、内容或标签..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/35 transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-2 p-1 text-slate-400 hover:text-white text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 2: Category Albums and Sorting selection */}
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between border-t border-slate-900 pt-3">
+                
+                {/* Horizontal scroll of categories */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 max-w-full">
+                  <span className="text-[11px] text-slate-500 font-bold shrink-0 mr-1.5">相册分类:</span>
+                  {availableAlbums.map((album) => (
+                    <button
+                      key={album}
+                      onClick={() => setSelectedAlbum(album)}
+                      className={`px-3 py-1 rounded-lg text-xs transition-colors shrink-0 cursor-pointer ${
+                        selectedAlbum === album
+                          ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 font-bold'
+                          : 'bg-slate-950 border border-slate-900 hover:border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {album === 'All' ? '全部相册' : album}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sorter selector */}
+                <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                  <span className="text-[11px] text-slate-500 font-bold">排序:</span>
+                  <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-900 text-[11px]">
+                    {[
+                      { label: '最新发布', key: 'newest' },
+                      { label: '最多阅读', key: 'popular' },
+                      { label: '最多点赞', key: 'likes' }
+                    ].map((sort) => (
+                      <button
+                        key={sort.key}
+                        onClick={() => setSortBy(sort.key as any)}
+                        className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                          sortBy === sort.key
+                            ? 'bg-slate-900 text-sky-400 font-bold'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {sort.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Stats & manual refresh button info */}
+              <div className="border-t border-slate-900/60 pt-3 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+                <div>
+                  {filterMode === 'today' ? (
+                    <span>
+                      {!hasTodayPhotos && (
+                        <span className="text-slate-500 mr-1.5">今日 (上海时间 {todayString}) 暂无发布，已为您切换展示</span>
+                      )}
+                      最新同步发布: <strong className="text-sky-400">{targetDateString}</strong> ({processedPhotos.length} 张图片)
+                    </span>
+                  ) : (
+                    <span>
+                      已筛选出 <strong className="text-sky-400">{processedPhotos.length}</strong> 张图片 
+                      {selectedAlbum !== 'All' && ` [相册: ${selectedAlbum}]`}
+                      {searchQuery && ` [搜索: "${searchQuery}"]`}
+                    </span>
+                  )}
+                </div>
+
                 <button
-                  onClick={() => setFilterMode('today')}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
-                    filterMode === 'today'
-                      ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
-                      : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-900'
-                  }`}
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950 hover:bg-slate-900 disabled:opacity-50 border border-slate-850 text-sky-400 hover:text-sky-300 font-bold text-[11px] rounded-lg transition-colors cursor-pointer"
                 >
-                  {hasTodayPhotos ? '今日图片' : '最新更新'}
-                </button>
-                <button
-                  onClick={() => setFilterMode('all')}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
-                    filterMode === 'all'
-                      ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
-                      : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-900'
-                  }`}
-                >
-                  全部历史 ({photos.length})
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? '同步中' : '同步获取最新图片'}</span>
                 </button>
               </div>
 
-              {/* Dynamic Info Status Badge */}
-              <div className="text-xs text-slate-400 bg-slate-900/40 px-3.5 py-2 rounded-xl border border-slate-900">
-                {filterMode === 'today' ? (
-                  <span>
-                    {!hasTodayPhotos && (
-                      <span className="text-slate-400 mr-2.5">今日 (北京时间 {todayString}) 暂无新图更新，已为您展示</span>
-                    )}
-                    最新更新日期: <strong className="text-sky-400">{targetDateString}</strong> ({filteredPhotos.length} 张)
-                  </span>
-                ) : (
-                  <span>
-                    共包含 <strong className="text-sky-400">{photos.length}</strong> 张图片
-                  </span>
-                )}
-              </div>
             </div>
 
-            {/* Main Image Grid / List */}
-            <div className="flex flex-col gap-6">
-              {filteredPhotos.map((photo, index) => (
-                <ScrollableImage
-                  key={photo.id || index}
-                  photo={photo}
+            {/* Main Picture Stream Grid */}
+            {processedPhotos.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 bg-slate-900/20 border border-slate-900 rounded-3xl p-6 text-center text-slate-400 gap-3 animate-fade-in">
+                <Compass className="w-12 h-12 text-slate-700 animate-pulse" />
+                <h3 className="text-base font-bold text-slate-300">未找到符合条件的图片</h3>
+                <p className="text-xs max-w-sm">
+                  请尝试清除当前的过滤分类、搜索词，或者重新从 Telegram 频道同步。
+                </p>
+                <button
                   onClick={() => {
-                    setActivePhoto(photo);
+                    setSelectedAlbum('All');
+                    setSearchQuery('');
+                    setFilterMode('all');
                   }}
-                />
-              ))}
-            </div>
+                  className="mt-1 px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-sky-400 rounded-lg border border-slate-800 text-xs font-semibold cursor-pointer"
+                >
+                  重置筛选条件
+                </button>
+              </div>
+            ) : (
+              <div className={layoutMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-5' : 'flex flex-col gap-6'}>
+                {processedPhotos.map((photo, index) => (
+                  <ScrollableImage
+                    key={photo.id || index}
+                    photo={photo}
+                    onCopyLink={handleCopyLink}
+                    onLike={handleLike}
+                    onTagClick={(tag) => {
+                      setSearchQuery(tag);
+                      showToast(`正在筛选标签 #${tag}`);
+                    }}
+                    onClick={() => {
+                      setActivePhoto(photo);
+                      handleView(photo.id);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
           </div>
         )}
       </main>
 
-      {/* Floating Auto-Scroll & Back-to-Top Control Panel */}
+      {/* Floating Control Panel */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2.5 items-end">
-        {/* Go to Top Button (only visible if scrolled down) */}
         {showBackToTop && (
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -564,8 +1323,7 @@ export default function App() {
           </button>
         )}
 
-        {/* Auto scroll control pill */}
-        {!isLoading && !errorMsg && filteredPhotos.length > 0 && (
+        {!isLoading && !errorMsg && processedPhotos.length > 0 && (
           <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 p-2 rounded-2xl shadow-2xl backdrop-blur-sm">
             <button
               onClick={() => setIsAutoScrolling(!isAutoScrolling)}
@@ -584,12 +1342,11 @@ export default function App() {
               )}
             </button>
 
-            {/* Speed Controls */}
             <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-900">
               {[
-                { label: '慢', value: 0.3 },
+                { label: '慢', value: 0.35 },
                 { label: '中', value: 0.75 },
-                { label: '快', value: 1.5 }
+                { label: '快', value: 1.6 }
               ].map((speed) => (
                 <button
                   key={speed.value}
@@ -608,22 +1365,20 @@ export default function App() {
         )}
       </div>
 
-      {/* Lightbox / Magnification Fullscreen Modal (Visible only after clicking an image) */}
+      {/* Lightbox Modal */}
       {activePhoto && (
         <div
           onClick={() => setActivePhoto(null)}
           className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in"
         >
-          {/* Close button */}
           <button
             onClick={() => setActivePhoto(null)}
-            className="absolute top-4 right-4 z-50 p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-full border border-slate-800 transition-colors cursor-pointer shadow-lg"
-            title="关闭"
+            className="absolute top-4 right-4 z-50 p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-full border border-slate-800 transition-colors cursor-pointer shadow-lg animate-pulse"
+            title="关闭 (Esc)"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {/* Expanded Image Box */}
           <div
             onClick={(e) => e.stopPropagation()}
             className="relative flex flex-col items-center max-w-5xl w-full max-h-[90vh] bg-transparent"
@@ -631,6 +1386,11 @@ export default function App() {
             <LightboxImage
               photo={activePhoto}
               onDownload={() => handleDownload(activePhoto)}
+              onCopyLink={handleCopyLink}
+              onPrev={handlePrevPhoto}
+              onNext={handleNextPhoto}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
             />
           </div>
         </div>
