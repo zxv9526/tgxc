@@ -993,105 +993,39 @@ export default function App() {
           </div>
 
           {/* Profile details */}
-          <div className="px-6 pb-6 relative -mt-16 sm: -mt-20 flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
-              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-4 border-slate-900 shadow-2xl bg-slate-800 shrink-0">
-                <img
-                  src={channelInfo?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop'}
-                  alt="Channel Avatar"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5 pb-1">
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-                    {channelInfo?.channelName || 'Telegram 频道图集'}
-                  </h1>
-                  <a
-                    href={`https://t.me/s/${channelHandle}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 font-semibold text-[10px] rounded-full border border-sky-500/20"
-                  >
-                    @{channelHandle}
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </div>
-                <p className="text-xs text-slate-400 line-clamp-2 max-w-xl">
-                  {channelInfo?.channelBio || '极速巡览与自动同步的 Telegram 官方频道图集库。'}
-                </p>
-                {channelInfo?.totalMembers && (
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    📊 {channelInfo.totalMembers}
-                  </span>
-                )}
-              </div>
+          <div className="px-6 pb-6 relative -mt-16 sm:-mt-20 flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-4 border-slate-900 shadow-2xl bg-slate-800 shrink-0">
+              <img
+                src={channelInfo?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop'}
+                alt="Channel Avatar"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
             </div>
-
-            {/* Switcher Form */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const trimmed = customChannelInput.trim();
-                if (trimmed) {
-                  const cleanHandle = trimmed.replace(/^https?:\/\/t\.me\/(s\/)?/, '').replace(/^@/, '').trim();
-                  if (cleanHandle) {
-                    setChannelHandle(cleanHandle);
-                    loadPhotosForHandle(cleanHandle);
-                    setCustomChannelInput('');
-                    showToast(`正在切换至频道 @${cleanHandle}...`);
-                  }
-                }
-              }}
-              className="flex gap-2 w-full md:w-auto shrink-0"
-            >
-              <div className="relative flex-1 md:w-56">
-                <span className="absolute left-3 top-2.5 text-slate-500 text-xs">@</span>
-                <input
-                  type="text"
-                  placeholder="探索其他频道 handle..."
-                  value={customChannelInput}
-                  onChange={(e) => setCustomChannelInput(e.target.value)}
-                  className="w-full pl-7 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/35 transition-all"
-                />
+            <div className="flex flex-col gap-1.5 pb-1">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                  {channelInfo?.channelName || 'Telegram 频道图集'}
+                </h1>
+                <a
+                  href={`https://t.me/s/${channelHandle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 font-semibold text-[10px] rounded-full border border-sky-500/20"
+                >
+                  @{channelHandle}
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
               </div>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-sky-500/10 shrink-0 cursor-pointer"
-              >
-                探索
-              </button>
-            </form>
-          </div>
-
-          {/* Preset Channels Suggestions */}
-          <div className="px-6 py-3 border-t border-slate-900 bg-slate-950/40 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-            <Compass className="w-3 h-3 text-sky-400 shrink-0" />
-            <span className="font-semibold text-slate-400 shrink-0">热门推荐:</span>
-            {[
-              { label: 'TG官方图集', handle: 'amlhmfzl' },
-              { label: '极简壁纸', handle: 'beautiful_wallpapers' },
-              { label: '风光摄影', handle: 'scenery_pic' },
-              { label: '3D视觉', handle: 'wallpaper_3d' },
-              { label: '黑白美学', handle: 'bw_photography' }
-            ].map((preset) => (
-              <button
-                key={preset.handle}
-                onClick={() => {
-                  setChannelHandle(preset.handle);
-                  loadPhotosForHandle(preset.handle);
-                  showToast(`正在载入 ${preset.label} 图集...`);
-                }}
-                className={`px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
-                  channelHandle === preset.handle
-                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-400 font-bold'
-                    : 'bg-slate-900 border-slate-900 hover:border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
+              <p className="text-xs text-slate-400 line-clamp-2 max-w-xl">
+                {channelInfo?.channelBio || '极速巡览与自动同步的 Telegram 官方频道图集库。'}
+              </p>
+              {channelInfo?.totalMembers && (
+                <span className="text-[11px] text-slate-500 font-medium">
+                  📊 {channelInfo.totalMembers}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
