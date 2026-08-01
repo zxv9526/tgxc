@@ -52,7 +52,28 @@ async function syncTelegramChannel(channelInput: string) {
     const parsed = parseTelegramWebHtml(html, handle);
 
     if (parsed.photos.length > 0) {
-      channelPhotos = parsed.photos;
+      if (handle !== channelConfig.handle) {
+        // Overwrite if switching to a completely different channel
+        channelPhotos = parsed.photos;
+      } else {
+        // Merge with existing photos if it's the same channel
+        const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
+        parsed.photos.forEach(p => {
+          if (existingPhotosMap.has(p.id)) {
+            const existing = existingPhotosMap.get(p.id)!;
+            existingPhotosMap.set(p.id, {
+              ...p,
+              likes: Math.max(p.likes || 0, existing.likes || 0),
+              views: Math.max(p.views || 0, existing.views || 0)
+            });
+          } else {
+            existingPhotosMap.set(p.id, p);
+          }
+        });
+        channelPhotos = Array.from(existingPhotosMap.values())
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 500); // Limit to last 500 photos to prevent infinite growth
+      }
       channelConfig.channelName = parsed.info.channelName;
       channelConfig.channelBio = parsed.info.channelBio;
       channelConfig.avatarUrl = parsed.info.avatarUrl;
@@ -61,7 +82,7 @@ async function syncTelegramChannel(channelInput: string) {
         channelConfig.totalMembers = parsed.info.totalMembers;
       }
       channelConfig.handle = handle;
-      console.log(`[Telegram Sync] Successfully loaded ${parsed.photos.length} photos for @${handle}`);
+      console.log(`[Telegram Sync] Successfully loaded and merged ${parsed.photos.length} photos for @${handle}. Total cached: ${channelPhotos.length}`);
       return true;
     } else {
       console.warn(`[Telegram Sync] No photos found in html for @${handle}`);
