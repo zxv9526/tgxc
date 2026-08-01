@@ -32,14 +32,20 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
 
   if (!photo) return null;
 
-  const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(photo.url)}`;
+  const displayUrl = photo.url.startsWith('/api/proxy-image') || photo.url.includes('images.unsplash.com')
+    ? photo.url
+    : `/api/proxy-image?url=${encodeURIComponent(photo.url)}`;
+
+  const downloadUrl = photo.url.startsWith('http') && !photo.url.includes('images.unsplash.com')
+    ? `/api/proxy-image?url=${encodeURIComponent(photo.url)}&download=1`
+    : photo.url;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
       {/* Top Bar Controls */}
       <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
         <a
-          href={`${proxyUrl}&download=1`}
+          href={downloadUrl}
           download={`photo-${photo.id}.jpg`}
           className="p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-800 transition-colors cursor-pointer flex items-center gap-2 text-xs font-bold"
           title="下载原图"
@@ -78,8 +84,9 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
       {/* Main Container */}
       <div className="max-w-5xl max-h-[90vh] flex flex-col items-center justify-center p-2 relative">
         <img
-          src={proxyUrl}
+          src={displayUrl}
           alt={photo.title || 'Telegram Photo'}
+          referrerPolicy="no-referrer"
           className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-slate-800/50"
         />
 

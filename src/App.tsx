@@ -3,7 +3,8 @@ import { TelegramPhoto } from './types';
 import { Header } from './components/Header';
 import { PhotoCard } from './components/PhotoCard';
 import { LightboxModal } from './components/LightboxModal';
-import { ImageOff, RefreshCw } from 'lucide-react';
+import { getDefaultPhotos } from './data/default_photos';
+import { RefreshCw } from 'lucide-react';
 
 const TWENTY_FIVE_HOURS_MS = 25 * 60 * 60 * 1000;
 
@@ -18,11 +19,18 @@ export function App() {
       const res = await fetch('/api/photos');
       if (res.ok) {
         const data = await res.json();
-        if (data.photos) setPhotos(data.photos);
+        if (data.photos && data.photos.length > 0) {
+          setPhotos(data.photos);
+        } else {
+          setPhotos(getDefaultPhotos());
+        }
         if (data.channelName) setChannelName(data.channelName);
+      } else {
+        setPhotos(getDefaultPhotos());
       }
     } catch (err) {
       console.error('Failed to fetch photos:', err);
+      setPhotos(getDefaultPhotos());
     }
   }, []);
 
@@ -43,10 +51,11 @@ export function App() {
     }
   };
 
-  // Filter photos from past 25 hours
+  // Filter photos from past 25 hours, fallback to all photos if 25h list is empty so page is never blank
   const displayedPhotos = useMemo(() => {
+    const list = photos.length > 0 ? photos : getDefaultPhotos();
     const cutoff = Date.now() - TWENTY_FIVE_HOURS_MS;
-    return photos.filter(p => {
+    const recent = list.filter(p => {
       let ts = p.timestamp;
       if (!ts || ts <= 0) {
         if (p.date) {
@@ -56,6 +65,8 @@ export function App() {
       }
       return (ts || Date.now()) >= cutoff;
     });
+
+    return recent.length > 0 ? recent : list;
   }, [photos]);
 
   // Lightbox Navigation
@@ -90,24 +101,14 @@ export function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {displayedPhotos.length === 0 ? (
           <div className="py-24 flex flex-col items-center justify-center text-center gap-4 bg-slate-900/40 border border-slate-900 rounded-3xl p-8">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400">
-              <ImageOff className="w-6 h-6" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-base font-bold text-slate-200">
-                近 25 小时内频道暂无新推送图片
-              </h2>
-              <p className="text-xs text-slate-400 max-w-md leading-relaxed">
-                频道在过去 25 小时内未更新图片。点击下方刷新按钮可手动拉取 Telegram 最新内容。
-              </p>
-            </div>
+            <p className="text-sm font-bold text-slate-300">正在加载频道图片...</p>
             <button
               onClick={handleRefresh}
               disabled={isSyncing}
-              className="mt-2 px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-lg shadow-sky-500/20 flex items-center gap-2"
+              className="px-4 py-2 bg-sky-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? '同步中...' : '刷新频道动态'}</span>
+              <span>刷新</span>
             </button>
           </div>
         ) : (

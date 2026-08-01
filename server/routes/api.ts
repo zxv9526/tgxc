@@ -17,6 +17,20 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
     }
   }
 
+  // Handle double-proxy or relative path resolution
+  if (imageUrl && (imageUrl.startsWith('/api/proxy-image') || imageUrl.includes('/api/proxy-image?'))) {
+    try {
+      const dummyUrl = new URL(imageUrl, 'http://localhost:3000');
+      const innerUrl = dummyUrl.searchParams.get('url');
+      const innerEnc = dummyUrl.searchParams.get('enc');
+      if (innerEnc) {
+        imageUrl = Buffer.from(innerEnc, 'base64').toString('utf-8');
+      } else if (innerUrl) {
+        imageUrl = innerUrl;
+      }
+    } catch (e) {}
+  }
+
   if (!imageUrl || !imageUrl.startsWith('http')) {
     return res.status(400).send('Invalid URL');
   }

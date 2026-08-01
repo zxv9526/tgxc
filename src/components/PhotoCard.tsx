@@ -11,7 +11,28 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(photo.url)}`;
+  const getInitialSrc = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('/api/proxy-image')) return url;
+    if (url.includes('images.unsplash.com') || url.startsWith('data:')) return url;
+    if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    return url;
+  };
+
+  const [currentSrc, setCurrentSrc] = useState<string>(() => getInitialSrc(photo.url));
+
+  const handleImgError = () => {
+    if (currentSrc.startsWith('/api/proxy-image') && photo.url && photo.url.startsWith('http')) {
+      // Fallback to direct URL without proxy
+      setCurrentSrc(photo.url);
+    } else {
+      setImageError(true);
+    }
+  };
+
+  const downloadUrl = photo.url.startsWith('http') && !photo.url.includes('images.unsplash.com')
+    ? `/api/proxy-image?url=${encodeURIComponent(photo.url)}&download=1`
+    : photo.url;
 
   return (
     <div
@@ -31,11 +52,12 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
           </div>
         ) : (
           <img
-            src={proxyUrl}
+            src={currentSrc}
             alt={photo.title || 'Telegram Photo'}
             loading="lazy"
+            referrerPolicy="no-referrer"
             onLoad={() => setImageLoaded(true)}
-            onError={() => setImageError(true)}
+            onError={handleImgError}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
               imageLoaded ? 'opacity-100' : 'opacity-0'
             }`}
@@ -53,7 +75,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onOpenLightbox }) =
 
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-end p-3 z-20">
           <a
-            href={`/api/proxy-image?url=${encodeURIComponent(photo.url)}&download=1`}
+            href={downloadUrl}
             download={`photo-${photo.id}.jpg`}
             onClick={(e) => e.stopPropagation()}
             className="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-700 backdrop-blur-md transition-transform active:scale-95"

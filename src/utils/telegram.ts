@@ -70,21 +70,22 @@ function parseViews(viewsStr: string): number {
 
 export function formatImageUrl(url: string): string {
   if (!url) return '';
-  if (url.startsWith('/api/proxy-image') || url.includes('/api/proxy-image')) {
-    return url;
-  }
-  if (
-    url.includes('telesco.pe') ||
-    url.includes('telegram-cdn.org') ||
-    url.includes('telegram.org') ||
-    url.includes('t.me')
-  ) {
+  if (url.startsWith('//')) return 'https:' + url;
+  if (url.includes('/api/proxy-image?enc=')) {
     try {
-      const enc = btoa(unescape(encodeURIComponent(url)));
-      return `/api/proxy-image?enc=${enc}`;
-    } catch (e) {
-      return `/api/proxy-image?url=${encodeURIComponent(url)}`;
-    }
+      const match = url.match(/enc=([^&]+)/);
+      if (match && match[1]) {
+        return decodeURIComponent(escape(atob(match[1])));
+      }
+    } catch (e) {}
+  }
+  if (url.includes('/api/proxy-image?url=')) {
+    try {
+      const match = url.match(/url=([^&]+)/);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch (e) {}
   }
   return url;
 }
