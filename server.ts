@@ -71,7 +71,11 @@ async function syncTelegramChannel(channelInput: string) {
           }
         });
         channelPhotos = Array.from(existingPhotosMap.values())
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .sort((a, b) => {
+            const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
+            const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
+            return bTime - aTime;
+          })
           .slice(0, 500); // Limit to last 500 photos to prevent infinite growth
       }
       channelConfig.channelName = parsed.info.channelName;

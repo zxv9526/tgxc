@@ -873,23 +873,39 @@ export default function App() {
 
   const todayString = getTodayString();
 
-  // Calculate sliding 24-hour range of photos
-  const latestPhotoTimestamp = useMemo(() => {
-    if (photos.length === 0) return Date.now();
-    return photos.reduce((max, p) => {
-      const pTime = p.timestamp || new Date(p.date).getTime();
-      return pTime > max ? pTime : max;
-    }, 0);
-  }, [photos]);
+  // Yesterday midnight (00:00:00) in Beijing Time
+  const beijingYesterdayMidnightTimestamp = useMemo(() => {
+    try {
+      const d = new Date();
+      const beijingString = new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(d).replace(/\//g, '-');
+      
+      const parts = beijingString.split('-');
+      if (parts.length === 3) {
+        const [y, m, day] = parts;
+        const todayMidnightStr = `${y}-${m}-${day}T00:00:00+08:00`;
+        const todayMidnight = new Date(todayMidnightStr);
+        if (!isNaN(todayMidnight.getTime())) {
+          return todayMidnight.getTime() - 24 * 60 * 60 * 1000;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return Date.now() - 48 * 60 * 60 * 1000;
+  }, []);
 
   const photosInLast24HoursCount = useMemo(() => {
     if (photos.length === 0) return 0;
-    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
     return photos.filter(p => {
-      const pTime = p.timestamp || new Date(p.date).getTime();
-      return (latestPhotoTimestamp - pTime) <= twentyFourHoursMs;
+      const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
+      return pTime >= beijingYesterdayMidnightTimestamp;
     }).length;
-  }, [photos, latestPhotoTimestamp]);
+  }, [photos, beijingYesterdayMidnightTimestamp]);
 
   // Extract unique albums
   const availableAlbums = useMemo(() => {
@@ -904,12 +920,11 @@ export default function App() {
   const processedPhotos = useMemo(() => {
     let result = [...photos];
 
-    // Date range mode: Show photos within 24 hours of the latest photo's timestamp
+    // Date range mode: Show photos since yesterday 00:00:00 Beijing time to now
     if (filterMode === 'today') {
-      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
       result = result.filter(p => {
-        const pTime = p.timestamp || new Date(p.date).getTime();
-        return (latestPhotoTimestamp - pTime) <= twentyFourHoursMs;
+        const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
+        return pTime >= beijingYesterdayMidnightTimestamp;
       });
     }
 
@@ -935,11 +950,15 @@ export default function App() {
     } else if (sortBy === 'likes') {
       result.sort((a, b) => (b.likes || 0) - (a.likes || 0));
     } else {
-      result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      result.sort((a, b) => {
+        const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
+        const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
+        return bTime - aTime;
+      });
     }
 
     return result;
-  }, [photos, filterMode, latestPhotoTimestamp, selectedAlbum, searchQuery, sortBy]);
+  }, [photos, filterMode, beijingYesterdayMidnightTimestamp, selectedAlbum, searchQuery, sortBy]);
 
   // Slide-by-slide modal navigation calculations
   const activePhotoIndex = useMemo(() => {
@@ -1031,7 +1050,7 @@ export default function App() {
                         : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
                     }`}
                   >
-                    24小时内动态 ({photosInLast24HoursCount})
+                    昨今发布 ({photosInLast24HoursCount})
                   </button>
                   <button
                     onClick={() => setFilterMode('all')}
@@ -1142,7 +1161,7 @@ export default function App() {
                 <div>
                   {filterMode === 'today' ? (
                     <span>
-                      正在展示最近 24 小时内的发布动态 ({processedPhotos.length} 张图片)
+                      正在展示自昨天凌晨 0:00 起的最新发布动态 ({processedPhotos.length} 张图片)
                     </span>
                   ) : (
                     <span>
