@@ -552,7 +552,7 @@ export default function App() {
 
   // Auto-scrolling state
   const [isAutoScrolling, setIsAutoScrolling] = useState<boolean>(false);
-  const [scrollSpeed, setScrollSpeed] = useState<number>(0.75);
+  const [scrollSpeed, setScrollSpeed] = useState<number>(2.25);
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
 
   // Lightbox magnification state
@@ -978,56 +978,6 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="w-full max-w-4xl flex flex-col gap-6 py-4">
-        
-        {/* Channel Profile Header and Switcher */}
-        <div className="bg-slate-900/60 border border-slate-900 rounded-3xl overflow-hidden shadow-2xl">
-          {/* Channel Banner */}
-          <div className="h-44 sm:h-52 w-full relative overflow-hidden bg-slate-950">
-            <img
-              src={channelInfo?.bannerUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop'}
-              alt="Channel Banner"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover opacity-60 filter blur-sm scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 to-transparent" />
-          </div>
-
-          {/* Profile details */}
-          <div className="px-6 pb-6 relative -mt-16 sm:-mt-20 flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-4 border-slate-900 shadow-2xl bg-slate-800 shrink-0">
-              <img
-                src={channelInfo?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop'}
-                alt="Channel Avatar"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5 pb-1">
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-                  {channelInfo?.channelName || 'Telegram 频道图集'}
-                </h1>
-                <a
-                  href={`https://t.me/s/${channelHandle}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 font-semibold text-[10px] rounded-full border border-sky-500/20"
-                >
-                  @{channelHandle}
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </a>
-              </div>
-              <p className="text-xs text-slate-400 line-clamp-2 max-w-xl">
-                {channelInfo?.channelBio || '极速巡览与自动同步的 Telegram 官方频道图集库。'}
-              </p>
-              {channelInfo?.totalMembers && (
-                <span className="text-[11px] text-slate-500 font-medium">
-                  📊 {channelInfo.totalMembers}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
 
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-40 gap-3 text-slate-400">
@@ -1278,9 +1228,9 @@ export default function App() {
 
             <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-900">
               {[
-                { label: '慢', value: 0.35 },
-                { label: '中', value: 0.75 },
-                { label: '快', value: 1.6 }
+                { label: '慢', value: 1.05 },
+                { label: '中', value: 2.25 },
+                { label: '快', value: 4.8 }
               ].map((speed) => (
                 <button
                   key={speed.value}
