@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { channelConfig, channelPhotos } from '../storage.js';
 import { syncTelegramChannel } from '../telegramFetcher.js';
+import { groupPhotosToBlogPosts } from '../../src/utils/telegram.js';
 
 const router = Router();
 
@@ -66,7 +67,7 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
   }
 });
 
-// Get Photos
+// Get Photos and Posts
 router.get('/photos', async (req: Request, res: Response) => {
   if (channelPhotos.length === 0 && channelConfig.handle) {
     await syncTelegramChannel(channelConfig.handle);
@@ -79,8 +80,11 @@ router.get('/photos', async (req: Request, res: Response) => {
     return (b.timestamp || 0) - (a.timestamp || 0);
   });
 
+  const posts = groupPhotosToBlogPosts(sorted);
+
   res.json({
     photos: sorted,
+    posts: posts,
     channelName: channelConfig.channelName || `@${channelConfig.handle}`,
     handle: channelConfig.handle,
   });
