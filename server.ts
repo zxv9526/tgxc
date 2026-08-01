@@ -64,8 +64,36 @@ async function syncTelegramChannel(channelInput: string) {
     let allParsedPhotos: TelegramPhoto[] = [];
     let mergedInfo: any = null;
 
-    // Fetch up to 3 pages of historical content to ensure we cover the entire day and yesterday
-    for (let page = 0; page < 3; page++) {
+    // Yesterday midnight (00:00:00) in Beijing Time
+    let yesterdayMidnight = Date.now() - 48 * 60 * 60 * 1000;
+    try {
+      const d = new Date();
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric'
+      });
+      const parts = formatter.formatToParts(d);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      if (year && month && day) {
+        const mm = month.padStart(2, '0');
+        const dd = day.padStart(2, '0');
+        const todayMidnight = new Date(`${year}-${mm}-${dd}T00:00:00+08:00`);
+        if (!isNaN(todayMidnight.getTime())) {
+          yesterdayMidnight = todayMidnight.getTime() - 24 * 60 * 60 * 1000;
+        }
+      }
+    } catch (e) {
+      console.error('[Sync Date Error]:', e);
+    }
+
+    console.log(`[Telegram Sync] Starting deep sync. Target yesterday midnight (Beijing): ${new Date(yesterdayMidnight).toISOString()}`);
+
+    // Fetch up to 8 pages of historical content to ensure we cover the entire day and yesterday
+    for (let page = 0; page < 8; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
         : `https://t.me/s/${handle}`;
@@ -86,31 +114,65 @@ async function syncTelegramChannel(channelInput: string) {
       const html = await res.text();
       const parsed = parseTelegramWebHtml(html, handle);
 
-      if (parsed.photos.length === 0) {
-        console.log(`[Telegram Sync] No photos found on page ${page + 1}. Stopping pagination.`);
-        break;
-      }
-
       if (!mergedInfo) {
         mergedInfo = parsed.info;
       }
 
-      allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
+      if (parsed.photos.length > 0) {
+        allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
+      }
 
-      // Find the minimum numeric messageId on the current page to query messages preceding it
-      const numericIds = parsed.photos
-        .map(p => parseInt(p.messageId || '', 10))
-        .filter(id => !isNaN(id));
+      // 1. Find the true minimum numeric message ID on the current page to query messages preceding it
+      const messageBlocks = html.split(/class="tgme_widget_message\s+/i);
+      const blockIds: number[] = [];
+      for (let i = 1; i < messageBlocks.length; i++) {
+        const block = messageBlocks[i];
+        const msgIdMatch = block.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || block.match(/data-post="[^\/]+\/(\d+)"/i);
+        if (msgIdMatch && msgIdMatch[1]) {
+          const idNum = parseInt(msgIdMatch[1], 10);
+          if (!isNaN(idNum)) {
+            blockIds.push(idNum);
+          }
+        }
+      }
 
-      if (numericIds.length > 0) {
-        const minId = Math.min(...numericIds);
+      let minId: number | null = null;
+      if (blockIds.length > 0) {
+        minId = Math.min(...blockIds);
+      }
+
+      // 2. Check if the current page has messages older than yesterday midnight (Beijing)
+      const datetimeMatches = html.match(/datetime="([^"]+)"/gi);
+      let pageHasOlderMessages = false;
+      if (datetimeMatches) {
+        for (const matchStr of datetimeMatches) {
+          const timeMatch = matchStr.match(/datetime="([^"]+)"/i);
+          if (timeMatch && timeMatch[1]) {
+            const t = new Date(timeMatch[1]).getTime();
+            if (!isNaN(t) && t < yesterdayMidnight) {
+              pageHasOlderMessages = true;
+              break;
+            }
+          }
+        }
+      }
+
+      console.log(`[Telegram Sync] Page ${page + 1} summary: photos parsed=${parsed.photos.length}, total accumulated=${allParsedPhotos.length}, minId=${minId}, hasOlderMessages=${pageHasOlderMessages}`);
+
+      if (minId !== null) {
         // If the minId isn't smaller, break to prevent infinite loop
         if (currentBefore !== null && minId >= currentBefore) {
           break;
         }
         currentBefore = minId;
       } else {
-        break; // Stop paginating if there are no numeric IDs
+        break; // Stop paginating if we can't find any message IDs on the page
+      }
+
+      // If this page already contains messages older than yesterday midnight, we have fetched all yesterday's messages! We can stop.
+      if (pageHasOlderMessages) {
+        console.log(`[Telegram Sync] Reached messages older than yesterday midnight. Stopping pagination.`);
+        break;
       }
 
       // Add a tiny delay between fetches to respect Telegram's server limits

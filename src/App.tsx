@@ -877,26 +877,34 @@ export default function App() {
   const beijingTodayMidnightTimestamp = useMemo(() => {
     try {
       const d = new Date();
-      const beijingString = new Intl.DateTimeFormat('zh-CN', {
+      const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'Asia/Shanghai',
         year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(d).replace(/\//g, '-');
-      
-      const parts = beijingString.split('-');
-      if (parts.length === 3) {
-        const [y, m, day] = parts;
-        const todayMidnightStr = `${y}-${m}-${day}T00:00:00+08:00`;
+        month: 'numeric',
+        day: 'numeric'
+      });
+      const parts = formatter.formatToParts(d);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      if (year && month && day) {
+        const mm = month.padStart(2, '0');
+        const dd = day.padStart(2, '0');
+        const todayMidnightStr = `${year}-${mm}-${dd}T00:00:00+08:00`;
         const todayMidnight = new Date(todayMidnightStr);
         if (!isNaN(todayMidnight.getTime())) {
           return todayMidnight.getTime();
         }
       }
     } catch (e) {
-      console.error(e);
+      console.error('[Beijing Date Error]:', e);
     }
-    return Date.now() - 24 * 60 * 60 * 1000;
+    // Robust fallback
+    const now = Date.now();
+    const tzOffsetMs = 8 * 60 * 60 * 1000;
+    const localTime = now + tzOffsetMs;
+    const msInDay = 24 * 60 * 60 * 1000;
+    return Math.floor(localTime / msInDay) * msInDay - tzOffsetMs;
   }, []);
 
   // Yesterday midnight (00:00:00) in Beijing Time
