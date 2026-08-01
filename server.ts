@@ -92,8 +92,8 @@ async function syncTelegramChannel(channelInput: string) {
 
     console.log(`[Telegram Sync] Starting deep sync. Target yesterday midnight (Beijing): ${new Date(yesterdayMidnight).toISOString()}`);
 
-    // Fetch up to 8 pages of historical content to ensure we cover the entire day and yesterday
-    for (let page = 0; page < 8; page++) {
+    // Fetch up to 12 pages of historical content to ensure we cover the entire day and yesterday
+    for (let page = 0; page < 12; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
         : `https://t.me/s/${handle}`;
@@ -138,18 +138,25 @@ async function syncTelegramChannel(channelInput: string) {
 
       let minId: number | null = null;
       if (blockIds.length > 0) {
-        minId = Math.min(...blockIds);
+        const maxId = Math.max(...blockIds);
+        // Filter out pinned posts/widgets that have extremely small IDs compared to the main feed sequence on this page
+        const validIds = blockIds.filter(id => id > maxId - 150);
+        if (validIds.length > 0) {
+          minId = Math.min(...validIds);
+        } else {
+          minId = Math.min(...blockIds);
+        }
       }
 
-      // 2. Check if the current page has messages older than yesterday midnight (Beijing)
-      const datetimeMatches = html.match(/datetime="([^"]+)"/gi);
+      // 2. Check if the current page has regular (non-pinned) messages older than yesterday midnight (Beijing)
       let pageHasOlderMessages = false;
-      if (datetimeMatches) {
-        for (const matchStr of datetimeMatches) {
-          const timeMatch = matchStr.match(/datetime="([^"]+)"/i);
-          if (timeMatch && timeMatch[1]) {
-            const t = new Date(timeMatch[1]).getTime();
-            if (!isNaN(t) && t < yesterdayMidnight) {
+      if (parsed.photos.length > 0 && blockIds.length > 0) {
+        const maxId = Math.max(...blockIds);
+        for (const photo of parsed.photos) {
+          const msgId = parseInt(photo.messageId || '', 10);
+          if (!isNaN(msgId) && msgId > maxId - 150) {
+            // This is a regular post (not pinned)
+            if (photo.timestamp && photo.timestamp < yesterdayMidnight) {
               pageHasOlderMessages = true;
               break;
             }
@@ -169,9 +176,9 @@ async function syncTelegramChannel(channelInput: string) {
         break; // Stop paginating if we can't find any message IDs on the page
       }
 
-      // If this page already contains messages older than yesterday midnight, we have fetched all yesterday's messages! We can stop.
-      if (pageHasOlderMessages) {
-        console.log(`[Telegram Sync] Reached messages older than yesterday midnight. Stopping pagination.`);
+      // If this page already contains messages older than yesterday midnight, AND we have fetched at least 3 pages, we can stop.
+      if (pageHasOlderMessages && page >= 2) {
+        console.log(`[Telegram Sync] Reached messages older than yesterday midnight and fetched 3+ pages. Stopping pagination.`);
         break;
       }
 

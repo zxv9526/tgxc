@@ -136,12 +136,15 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     // Unescape &quot; for clean url matching
     const cleanBlock = block.replace(/&quot;/g, '"');
 
+    // Strip out the user avatar div to prevent matching user avatar background images
+    const postContentBlock = cleanBlock.replace(/<div[^>]*class="[^"]*tgme_widget_message_userphoto[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+
     const imageUrls: string[] = [];
 
     // Pattern 1: background-image:url(...) or url('...') or url("...")
     const bgRegex = /background-image:\s*url\(['"]?(https:\/\/[^'"\)\s]+)['"]?\)/gi;
     let match;
-    while ((match = bgRegex.exec(cleanBlock)) !== null) {
+    while ((match = bgRegex.exec(postContentBlock)) !== null) {
       const url = match[1];
       if (url && !imageUrls.includes(url)) {
         imageUrls.push(url);
@@ -150,7 +153,7 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
     // Pattern 2: Direct CDN links to images (telesco.pe or telegram-cdn)
     const cdnRegex = /(https:\/\/(?:cdn\d*\.telesco\.pe|cdn\d*\.telegram-cdn\.org|telegram\.org)\/file\/[^"'\s\)]+)/gi;
-    while ((match = cdnRegex.exec(cleanBlock)) !== null) {
+    while ((match = cdnRegex.exec(postContentBlock)) !== null) {
       const url = match[1];
       if (url && !imageUrls.includes(url)) {
         imageUrls.push(url);

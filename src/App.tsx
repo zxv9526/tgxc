@@ -67,12 +67,11 @@ function ScrollableImage({
   photo: TelegramPhoto;
   onClick: () => void;
   onCopyLink?: (url: string) => void;
-  onLike: (photoId: string, e?: React.MouseEvent) => void;
+  onLike?: (photoId: string, e?: React.MouseEvent) => void;
   onTagClick?: (tag: string) => void;
 }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [sourceIndex, setSourceIndex] = useState(0);
-  const [descExpanded, setDescExpanded] = useState(false);
 
   // Extract raw direct image URL from wrapped proxy URL
   let rawImgUrl = photo.url;
@@ -138,19 +137,9 @@ function ScrollableImage({
           <div className="flex flex-col items-center justify-center bg-slate-900/95 gap-3 p-6 text-center select-text w-full min-h-[260px]">
             <AlertCircle className="w-8 h-8 text-rose-500 animate-pulse" />
             <p className="text-xs text-slate-400 max-w-md">
-              图片载入出现阻碍，可点击重新加载或直接访问原图。
+              图片载入出现阻碍，直接访问原图。
             </p>
             <div className="flex gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSourceIndex(0);
-                  setStatus('loading');
-                }}
-                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                重新加载
-              </button>
               <a
                 href={rawImgUrl}
                 target="_blank"
@@ -203,38 +192,12 @@ function ScrollableImage({
               )}
             </div>
           </div>
-
-          {onCopyLink && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopyLink(rawImgUrl);
-              }}
-              className="p-2 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-800 transition-all cursor-pointer shadow-sm hover:scale-105"
-              title="复制原图链接"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
 
         {/* Description */}
         {photo.description && (
           <div className="text-xs text-slate-300 leading-relaxed font-normal">
-            <p className={descExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}>
-              {photo.description}
-            </p>
-            {photo.description.length > 80 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDescExpanded(!descExpanded);
-                }}
-                className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold mt-1 cursor-pointer hover:underline"
-              >
-                {descExpanded ? '收起详情' : '展开全文'}
-              </button>
-            )}
+            <p className="whitespace-pre-wrap">{photo.description}</p>
           </div>
         )}
 
@@ -242,17 +205,13 @@ function ScrollableImage({
         {photo.tags && photo.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {photo.tags.map((tag) => (
-              <button
+              <span
                 key={tag}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onTagClick) onTagClick(tag);
-                }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-900 hover:bg-slate-850 border border-slate-800/80 rounded-md text-[10px] text-slate-400 hover:text-sky-400 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-900 border border-slate-800/80 rounded-md text-[10px] text-slate-400"
               >
                 <Tag className="w-2.5 h-2.5 text-slate-500" />
                 <span>#{tag}</span>
-              </button>
+              </span>
             ))}
           </div>
         )}
@@ -265,29 +224,7 @@ function ScrollableImage({
               <Eye className="w-4 h-4 text-slate-600" />
               <span>{photo.views || 0} 次阅读</span>
             </div>
-
-            {/* Likes (Interactive) */}
-            <button
-              onClick={(e) => onLike(photo.id, e)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/10 hover:border-rose-500/20 text-rose-400 transition-all cursor-pointer group/like active:scale-95"
-            >
-              <Heart className="w-4 h-4 fill-rose-500/10 group-hover/like:fill-rose-500/30 transition-colors animate-pulse" />
-              <span>{photo.likes || 0} 点赞</span>
-            </button>
           </div>
-
-          {photo.telegramUrl && (
-            <a
-              href={photo.telegramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 hover:underline font-semibold"
-            >
-              <span>查看 Telegram 原帖</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
         </div>
       </div>
     </div>
@@ -469,54 +406,7 @@ function LightboxImage({
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              onClick={onDownload}
-              className="px-6 py-2.5 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center gap-2 shadow-xl shadow-sky-500/20 transition-all cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>下载原图</span>
-            </button>
 
-            <button
-              onClick={() => setIsZoomed(!isZoomed)}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
-            >
-              {isZoomed ? (
-                <>
-                  <Minimize2 className="w-4 h-4 text-sky-400" />
-                  <span>适应屏幕</span>
-                </>
-              ) : (
-                <>
-                  <Maximize2 className="w-4 h-4 text-sky-400" />
-                  <span>100% 缩放</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => onCopyLink(rawImgUrl)}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
-            >
-              <Copy className="w-4 h-4 text-emerald-400" />
-              <span>复制原图链接</span>
-            </button>
-
-            {photo.telegramUrl && (
-              <a
-                href={photo.telegramUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-slate-700 transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                <span>打开 Telegram 原帖</span>
-              </a>
-            )}
-          </div>
         </div>
       )}
     </div>
@@ -541,7 +431,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Filters & State
-  const [filterMode, setFilterMode] = useState<'today' | 'yesterday' | 'all'>('yesterday');
+  const [filterMode, setFilterMode] = useState<'today' | 'yesterday' | 'all'>('all');
   const [layoutMode, setLayoutMode] = useState<'stream' | 'grid'>('stream');
   const [selectedAlbum, setSelectedAlbum] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -1060,188 +950,39 @@ export default function App() {
         ) : (
           <div className="flex flex-col gap-6 animate-fade-in">
             
-            {/* Control Dashboard Panel */}
-            <div className="bg-slate-900/40 border border-slate-900 p-4 sm:p-5 rounded-3xl flex flex-col gap-4">
-              
-              {/* Row 1: Filters Mode, Layout, and Search */}
-              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-                
-                {/* Switchers (Today vs Yesterday vs All, Stream vs Grid) */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setFilterMode('today')}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
-                      filterMode === 'today'
-                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
-                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
-                    }`}
-                  >
-                    今日发布 ({photosInTodayCount})
-                  </button>
-                  <button
-                    onClick={() => setFilterMode('yesterday')}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
-                      filterMode === 'yesterday'
-                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
-                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
-                    }`}
-                  >
-                    昨今发布 ({photosInYesterdayCount})
-                  </button>
-                  <button
-                    onClick={() => setFilterMode('all')}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wider transition-all duration-200 cursor-pointer ${
-                      filterMode === 'all'
-                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
-                        : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
-                    }`}
-                  >
-                    全部历史 ({photos.length})
-                  </button>
-
-                  <div className="h-5 w-px bg-slate-800/80 mx-1" />
-
-                  {/* Layout mode buttons */}
-                  <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-900">
-                    <button
-                      onClick={() => setLayoutMode('stream')}
-                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                        layoutMode === 'stream' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'
-                      }`}
-                      title="高清画质流"
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setLayoutMode('grid')}
-                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                        layoutMode === 'grid' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'
-                      }`}
-                      title="拼图网格"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="h-5 w-px bg-slate-800/80 mx-1" />
-
-                  {/* Manual Sync trigger */}
-                  <button
-                    onClick={handleManualSync}
-                    disabled={isSyncing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/85 border border-slate-850 text-sky-400 hover:text-sky-300 hover:bg-slate-900 disabled:opacity-50 transition-all cursor-pointer shadow-sm active:scale-95"
-                    title="立即从 Telegram 深度同步更多历史图片"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{isSyncing ? '深度同步中...' : '深度同步'}</span>
-                  </button>
-                </div>
-
-                {/* Right: Search Box */}
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="在频道图片中筛选标题、内容或标签..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/35 transition-all"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 top-2 p-1 text-slate-400 hover:text-white text-xs cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+            {/* Minimalist Channel Header (No buttons/controls) */}
+            <div className="flex flex-col items-center text-center gap-3 py-4 border-b border-slate-900 pb-6">
+              {channelInfo?.avatarUrl && (
+                <img
+                  src={channelInfo.avatarUrl}
+                  alt={channelInfo.channelName}
+                  className="w-16 h-16 rounded-full border border-slate-855 object-cover shadow-xl"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+              <div>
+                <h1 className="text-xl font-extrabold tracking-tight text-white mb-1">
+                  {channelInfo?.channelName || channelHandle}
+                </h1>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  {channelInfo?.channelBio || `@${channelHandle} 频道的精彩图片流`}
+                </p>
+                {channelInfo?.totalMembers && (
+                  <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 border border-slate-800 text-sky-400">
+                    {channelInfo.totalMembers}
+                  </span>
+                )}
               </div>
-
-              {/* Row 2: Category Albums and Sorting selection */}
-              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between border-t border-slate-900 pt-3">
-                
-                {/* Horizontal scroll of categories */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 max-w-full">
-                  <span className="text-[11px] text-slate-500 font-bold shrink-0 mr-1.5">相册分类:</span>
-                  {availableAlbums.map((album) => (
-                    <button
-                      key={album}
-                      onClick={() => setSelectedAlbum(album)}
-                      className={`px-3 py-1 rounded-lg text-xs transition-colors shrink-0 cursor-pointer ${
-                        selectedAlbum === album
-                          ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400 font-bold'
-                          : 'bg-slate-950 border border-slate-900 hover:border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {album === 'All' ? '全部相册' : album}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Sorter selector */}
-                <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-                  <span className="text-[11px] text-slate-500 font-bold">排序:</span>
-                  <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-900 text-[11px]">
-                    {[
-                      { label: '最新发布', key: 'newest' },
-                      { label: '最多阅读', key: 'popular' },
-                      { label: '最多点赞', key: 'likes' }
-                    ].map((sort) => (
-                      <button
-                        key={sort.key}
-                        onClick={() => setSortBy(sort.key as any)}
-                        className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                          sortBy === sort.key
-                            ? 'bg-slate-900 text-sky-400 font-bold'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {sort.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Stats & manual refresh button info */}
-              <div className="border-t border-slate-900/60 pt-3 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
-                <div>
-                  {filterMode === 'today' ? (
-                    <span>
-                      正在展示自昨天凌晨 0:00 起的最新发布动态 ({processedPhotos.length} 张图片)
-                    </span>
-                  ) : (
-                    <span>
-                      已筛选出 <strong className="text-sky-400">{processedPhotos.length}</strong> 张图片 
-                      {selectedAlbum !== 'All' && ` [相册: ${selectedAlbum}]`}
-                      {searchQuery && ` [搜索: "${searchQuery}"]`}
-                    </span>
-                  )}
-                </div>
-              </div>
-
             </div>
 
             {/* Main Picture Stream Grid */}
             {processedPhotos.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 bg-slate-900/20 border border-slate-900 rounded-3xl p-6 text-center text-slate-400 gap-3 animate-fade-in">
                 <Compass className="w-12 h-12 text-slate-700 animate-pulse" />
-                <h3 className="text-base font-bold text-slate-300">未找到符合条件的图片</h3>
+                <h3 className="text-base font-bold text-slate-300">暂无图片内容</h3>
                 <p className="text-xs max-w-sm">
-                  请尝试清除当前的过滤分类、搜索词，或者重新从 Telegram 频道同步。
+                  未找到任何图片发布，请稍后再试。
                 </p>
-                <button
-                  onClick={() => {
-                    setSelectedAlbum('All');
-                    setSearchQuery('');
-                    setFilterMode('all');
-                  }}
-                  className="mt-1 px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-sky-400 rounded-lg border border-slate-800 text-xs font-semibold cursor-pointer"
-                >
-                  重置筛选条件
-                </button>
               </div>
             ) : (
               <div className={layoutMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-5' : 'flex flex-col gap-6'}>
@@ -1249,12 +990,6 @@ export default function App() {
                   <ScrollableImage
                     key={photo.id || index}
                     photo={photo}
-                    onCopyLink={handleCopyLink}
-                    onLike={handleLike}
-                    onTagClick={(tag) => {
-                      setSearchQuery(tag);
-                      showToast(`正在筛选标签 #${tag}`);
-                    }}
                     onClick={() => {
                       setActivePhoto(photo);
                       handleView(photo.id);
