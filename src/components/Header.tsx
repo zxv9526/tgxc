@@ -1,89 +1,72 @@
 import React from 'react';
-import { Camera, Search, PlusCircle, ExternalLink, RefreshCw } from 'lucide-react';
-import { ChannelConfig } from '../types';
+import { Camera, RefreshCw } from 'lucide-react';
+import { FilterMode } from '../types';
 
 interface HeaderProps {
-  searchQuery: string;
-  setSearchQuery: (query: string) => void;
-  channelConfig: ChannelConfig;
+  channelName: string;
+  filterMode: FilterMode;
+  setFilterMode: (mode: FilterMode) => void;
+  todayCount: number;
+  totalCount: number;
   isSyncing: boolean;
-  onManualSync: () => void;
-  onOpenUpload: () => void;
+  onRefresh: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  searchQuery,
-  setSearchQuery,
-  channelConfig,
+  channelName,
+  filterMode,
+  setFilterMode,
+  todayCount,
+  totalCount,
   isSyncing,
-  onManualSync,
-  onOpenUpload,
+  onRefresh,
 }) => {
   return (
-    <header className="sticky top-0 z-40 w-full bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/80 transition-all">
+    <header className="sticky top-0 z-40 w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        {/* Brand Title */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 p-0.5 shadow-lg shadow-sky-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <Camera className="w-5 h-5 text-sky-400" />
-            </div>
+        {/* Title */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+            <Camera className="w-5 h-5" />
           </div>
-          <div>
-            <h1 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2">
-              Telegram 深度相册
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
-                Live Sync
-              </span>
-            </h1>
-            <p className="text-[11px] text-slate-400 hidden sm:block">北京时间当天气频实时抓取与 AI 提示词相册</p>
-          </div>
+          <h1 className="text-base font-bold text-white tracking-tight">
+            {channelName || '频道图集'}
+          </h1>
         </div>
 
-        {/* Search Bar */}
-        <div className="flex-1 max-w-md hidden md:block">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索包含的关键词、标签或主题..."
-              className="w-full pl-10 pr-4 py-1.5 bg-slate-900/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all"
-            />
+        {/* Filter Switcher & Refresh */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setFilterMode('today')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                filterMode === 'today'
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              今日图片 ({todayCount})
+            </button>
+            <button
+              onClick={() => setFilterMode('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                filterMode === 'all'
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              全部图片 ({totalCount})
+            </button>
           </div>
-        </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={onManualSync}
+            onClick={onRefresh}
             disabled={isSyncing}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold rounded-xl border border-slate-800 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="手动全量深度抓取频道最新推送"
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-all cursor-pointer disabled:opacity-50"
+            title="刷新获取最新图集"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{isSyncing ? '同步中...' : '同步全量'}</span>
+            <RefreshCw className={`w-4 h-4 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
-
-          <button
-            onClick={onOpenUpload}
-            className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-md shadow-sky-500/20 border border-sky-400/30 cursor-pointer"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">新增图片</span>
-          </button>
-
-          <a
-            href={`https://t.me/s/${channelConfig.handle}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold rounded-xl border border-slate-800 transition-all flex items-center gap-1.5"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden md:inline">前往频道</span>
-          </a>
         </div>
       </div>
     </header>

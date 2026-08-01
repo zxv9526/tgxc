@@ -1,42 +1,16 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { TelegramPhoto, ChannelConfig, FilterMode, LayoutMode } from './types';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { TelegramPhoto, FilterMode } from './types';
 import { Header } from './components/Header';
-import { ChannelConfigBar } from './components/ChannelConfigBar';
-import { FilterBar } from './components/FilterBar';
 import { PhotoCard } from './components/PhotoCard';
 import { LightboxModal } from './components/LightboxModal';
-import { PromptModal } from './components/PromptModal';
-import { WatermarkModal } from './components/WatermarkModal';
-import { UploadModal } from './components/UploadModal';
-import { EmptyTodayState } from './components/EmptyTodayState';
+import { ImageOff, RefreshCw } from 'lucide-react';
 
 export function App() {
   const [photos, setPhotos] = useState<TelegramPhoto[]>([]);
-  const [albums, setAlbums] = useState<string[]>(['All']);
-  const [channelConfig, setChannelConfig] = useState<ChannelConfig>({
-    channelName: 'Telegram 官方频道图集',
-    channelBio: 'Telegram 官方频道图集与精选摄影相册库。支持分类筛选、极速巡览与自动同步。',
-    bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop',
-    totalMembers: '12,450 关注',
-    handle: 'amlhmfzl'
-  });
-
-  const [targetInput, setTargetInput] = useState('amlhmfzl');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedAlbum, setSelectedAlbum] = useState('All');
+  const [channelName, setChannelName] = useState('Telegram 频道图集');
   const [filterMode, setFilterMode] = useState<FilterMode>('today');
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('grid');
-
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
-
-  // Modals
   const [lightboxPhoto, setLightboxPhoto] = useState<TelegramPhoto | null>(null);
-  const [promptModalPhoto, setPromptModalPhoto] = useState<TelegramPhoto | null>(null);
-  const [watermarkModalPhoto, setWatermarkModalPhoto] = useState<TelegramPhoto | null>(null);
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
 
   // Calculate current Beijing Time today date string (YYYY-MM-DD)
   const todayString = useMemo(() => {
@@ -71,21 +45,13 @@ export function App() {
     return Math.floor(localTime / msInDay) * msInDay - tzOffsetMs;
   }, []);
 
-  // Fetch photos & channel info from server
-  const fetchPhotos = useCallback(async (channelHandle?: string) => {
+  const fetchPhotos = useCallback(async () => {
     try {
-      const url = channelHandle
-        ? `/api/photos?channel=${encodeURIComponent(channelHandle)}`
-        : '/api/photos';
-      const res = await fetch(url);
+      const res = await fetch('/api/photos');
       if (res.ok) {
         const data = await res.json();
         if (data.photos) setPhotos(data.photos);
-        if (data.albums) setAlbums(data.albums);
-        if (data.info) {
-          setChannelConfig(data.info);
-          setTargetInput(data.info.handle || 'amlhmfzl');
-        }
+        if (data.channelName) setChannelName(data.channelName);
       }
     } catch (err) {
       console.error('Failed to fetch photos:', err);
@@ -96,34 +62,14 @@ export function App() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  // Handle Channel Deep Sync
-  const handleSync = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleRefresh = async () => {
     if (isSyncing) return;
-
     setIsSyncing(true);
-    setSyncSuccessMsg(null);
-
     try {
-      const handleToSync = targetInput.trim() || channelConfig.handle || 'amlhmfzl';
-      const res = await fetch('/api/telegram/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: handleToSync })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.photos) setPhotos(data.photos);
-        if (data.info) {
-          setChannelConfig(data.info);
-          setTargetInput(data.info.handle);
-        }
-        setSyncSuccessMsg(`成功解析 @${data.handle} 频道，共同步 ${data.photosCount || 0} 张最新图片素材`);
-        setTimeout(() => setSyncSuccessMsg(null), 5000);
-      }
+      await fetch('/api/sync', { method: 'POST' });
+      await fetchPhotos();
     } catch (err) {
-      console.error('Failed to sync TG channel:', err);
+      console.error('Failed to sync:', err);
     } finally {
       setIsSyncing(false);
     }
@@ -136,166 +82,89 @@ export function App() {
     });
   }, [photos, todayString, beijingTodayMidnightTimestamp]);
 
-  // Compute processed and filtered photo stream
-  const processedPhotos = useMemo(() => {
-    let result = filterMode === 'today' ? [...todayPhotos] : [...photos];
-
-    if (selectedAlbum !== 'All') {
-      result = result.filter(p => p.album === selectedAlbum);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(p =>
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.tags.some(t => t.toLowerCase().includes(q))
-      );
-    }
-
-    // Sort order: newest first by messageId / timestamp
-    result.sort((a, b) => {
-      const aId = parseInt(a.messageId || '0', 10);
-      const bId = parseInt(b.messageId || '0', 10);
-      if (aId && bId && aId !== bId) return bId - aId;
-      const aTime = a.timestamp || 0;
-      const bTime = b.timestamp || 0;
-      return bTime - aTime;
-    });
-
-    return result;
-  }, [photos, todayPhotos, filterMode, selectedAlbum, searchQuery]);
+  const displayedPhotos = useMemo(() => {
+    return filterMode === 'today' ? todayPhotos : photos;
+  }, [filterMode, todayPhotos, photos]);
 
   // Lightbox Navigation
-  const activePhotoIndex = useMemo(() => {
+  const activeIndex = useMemo(() => {
     if (!lightboxPhoto) return -1;
-    return processedPhotos.findIndex(p => p.id === lightboxPhoto.id);
-  }, [lightboxPhoto, processedPhotos]);
+    return displayedPhotos.findIndex(p => p.id === lightboxPhoto.id);
+  }, [lightboxPhoto, displayedPhotos]);
 
   const handleNextPhoto = () => {
-    if (activePhotoIndex >= 0 && activePhotoIndex < processedPhotos.length - 1) {
-      setLightboxPhoto(processedPhotos[activePhotoIndex + 1]);
+    if (activeIndex >= 0 && activeIndex < displayedPhotos.length - 1) {
+      setLightboxPhoto(displayedPhotos[activeIndex + 1]);
     }
   };
 
   const handlePrevPhoto = () => {
-    if (activePhotoIndex > 0) {
-      setLightboxPhoto(processedPhotos[activePhotoIndex - 1]);
+    if (activeIndex > 0) {
+      setLightboxPhoto(displayedPhotos[activeIndex - 1]);
     }
-  };
-
-  // Like photo
-  const handleLike = async (photo: TelegramPhoto, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const res = await fetch(`/api/photos/${photo.id}/like`, { method: 'POST' });
-      if (res.ok) {
-        setPhotos(prev => prev.map(p => p.id === photo.id ? { ...p, likes: p.likes + 1 } : p));
-        if (lightboxPhoto && lightboxPhoto.id === photo.id) {
-          setLightboxPhoto(prev => prev ? { ...prev, likes: prev.likes + 1 } : null);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to like photo:', err);
-    }
-  };
-
-  // Add custom photo
-  const handleAddPhoto = async (newPhotoData: any) => {
-    const res = await fetch('/api/photos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newPhotoData)
-    });
-    if (res.ok) {
-      fetchPhotos();
-    }
-  };
-
-  const handleCopyLink = () => {
-    if (!lightboxPhoto) return;
-    navigator.clipboard.writeText(lightboxPhoto.url);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-sky-500 selection:text-white flex flex-col antialiased">
-      {/* Navbar */}
+      {/* Clean Top Header */}
       <Header
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        channelConfig={channelConfig}
+        channelName={channelName}
+        filterMode={filterMode}
+        setFilterMode={setFilterMode}
+        todayCount={todayPhotos.length}
+        totalCount={photos.length}
         isSyncing={isSyncing}
-        onManualSync={() => handleSync()}
-        onOpenUpload={() => setIsUploadOpen(true)}
+        onRefresh={handleRefresh}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Channel Banner & Config Bar */}
-        <ChannelConfigBar
-          channelConfig={channelConfig}
-          targetInput={targetInput}
-          setTargetInput={setTargetInput}
-          isSyncing={isSyncing}
-          syncSuccessMsg={syncSuccessMsg}
-          onSync={handleSync}
-        />
-
-        {/* Filters & Stream Controls */}
-        <FilterBar
-          filterMode={filterMode}
-          setFilterMode={setFilterMode}
-          selectedAlbum={selectedAlbum}
-          setSelectedAlbum={setSelectedAlbum}
-          albums={albums}
-          layoutMode={layoutMode}
-          setLayoutMode={setLayoutMode}
-          todayPhotosCount={todayPhotos.length}
-          totalPhotosCount={photos.length}
-          todayString={todayString}
-          isSyncing={isSyncing}
-          onManualSync={() => handleSync()}
-        />
-
-        {/* Gallery Grid or Empty State */}
-        {processedPhotos.length === 0 ? (
-          filterMode === 'today' ? (
-            <EmptyTodayState
-              todayString={todayString}
-              isSyncing={isSyncing}
-              onManualSync={() => handleSync()}
-              hasTotalPhotos={photos.length > 0}
-              totalPhotosCount={photos.length}
-              onShowAll={() => setFilterMode('all')}
-            />
-          ) : (
-            <div className="py-20 text-center text-slate-500 bg-slate-900/20 border border-slate-900 rounded-3xl">
-              暂未找到符合条件的历史图片素材
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {displayedPhotos.length === 0 ? (
+          <div className="py-24 flex flex-col items-center justify-center text-center gap-4 bg-slate-900/40 border border-slate-900 rounded-3xl p-8">
+            <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400">
+              <ImageOff className="w-6 h-6" />
             </div>
-          )
+            <div className="space-y-1">
+              <h2 className="text-base font-bold text-slate-200">
+                {filterMode === 'today' ? `今日（${todayString}）暂无新推送图片` : '暂无图片'}
+              </h2>
+              <p className="text-xs text-slate-400 max-w-md">
+                {filterMode === 'today'
+                  ? '按照北京时间计算，频道在今日尚未推送新图片。您可以点击下方按钮查看历史全部图片。'
+                  : '频道暂未同步到图片数据。'}
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              {filterMode === 'today' && photos.length > 0 && (
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-lg shadow-sky-500/20"
+                >
+                  查看历史全部图片 ({photos.length} 张)
+                </button>
+              )}
+              <button
+                onClick={handleRefresh}
+                disabled={isSyncing}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-all cursor-pointer flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>刷新监测</span>
+              </button>
+            </div>
+          </div>
         ) : (
-          <div className={layoutMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-5' : 'flex flex-col gap-6'}>
-            {processedPhotos.map((photo) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {displayedPhotos.map((photo) => (
               <PhotoCard
                 key={photo.id}
                 photo={photo}
-                layoutMode={layoutMode}
                 onOpenLightbox={(p) => setLightboxPhoto(p)}
-                onOpenPromptModal={(p) => setPromptModalPhoto(p)}
-                onOpenWatermarkModal={(p) => setWatermarkModalPhoto(p)}
-                onLike={handleLike}
               />
             ))}
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-8 text-center text-xs text-slate-500 mt-12">
-        <p>Telegram Deep Gallery & AI Prompt Studio · 北京时间每日整天多维同步相册</p>
-      </footer>
 
       {/* Lightbox Modal */}
       <LightboxModal
@@ -303,32 +172,8 @@ export function App() {
         onClose={() => setLightboxPhoto(null)}
         onNext={handleNextPhoto}
         onPrev={handlePrevPhoto}
-        hasNext={activePhotoIndex >= 0 && activePhotoIndex < processedPhotos.length - 1}
-        hasPrev={activePhotoIndex > 0}
-        onOpenPromptModal={(p) => setPromptModalPhoto(p)}
-        onOpenWatermarkModal={(p) => setWatermarkModalPhoto(p)}
-        onLike={handleLike}
-        copiedLink={copiedLink}
-        onCopyLink={handleCopyLink}
-      />
-
-      {/* Prompt Modal */}
-      <PromptModal
-        photo={promptModalPhoto}
-        onClose={() => setPromptModalPhoto(null)}
-      />
-
-      {/* Watermark Modal */}
-      <WatermarkModal
-        photo={watermarkModalPhoto}
-        onClose={() => setWatermarkModalPhoto(null)}
-      />
-
-      {/* Upload Modal */}
-      <UploadModal
-        isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
-        onAddPhoto={handleAddPhoto}
+        hasNext={activeIndex >= 0 && activeIndex < displayedPhotos.length - 1}
+        hasPrev={activeIndex > 0}
       />
     </div>
   );
