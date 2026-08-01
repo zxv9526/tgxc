@@ -82,10 +82,10 @@ function saveCacheToDisk(): void {
 }
 
 /**
- * Calculates Beijing time's yesterday midnight (00:00:00 - 24h) timestamp.
+ * Calculates Beijing time's cutoff timestamp (3 days ago at 00:00:00).
  */
-function getBeijingYesterdayMidnight(): number {
-  let yesterdayMidnight = Date.now() - 48 * 60 * 60 * 1000;
+function getBeijingCutoffTimestamp(): number {
+  let cutoff = Date.now() - 72 * 60 * 60 * 1000;
   try {
     const d = new Date();
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -103,20 +103,20 @@ function getBeijingYesterdayMidnight(): number {
       const dd = day.padStart(2, '0');
       const todayMidnight = new Date(`${year}-${mm}-${dd}T00:00:00+08:00`);
       if (!isNaN(todayMidnight.getTime())) {
-        yesterdayMidnight = todayMidnight.getTime() - 24 * 60 * 60 * 1000;
+        cutoff = todayMidnight.getTime() - 3 * 24 * 60 * 60 * 1000;
       }
     }
   } catch (e) {
     console.error('[Date Helper Error]:', e);
   }
-  return yesterdayMidnight;
+  return cutoff;
 }
 
 /**
  * Extracts message numeric IDs from raw Telegram HTML widget payload.
  */
 function extractMessageIds(html: string): number[] {
-  const messageBlocks = html.split(/class="tgme_widget_message\s+/i);
+  const messageBlocks = html.split(/class=["']tgme_widget_message[\s"']/i);
   const blockIds: number[] = [];
   for (let i = 1; i < messageBlocks.length; i++) {
     const block = messageBlocks[i];
@@ -132,16 +132,16 @@ function extractMessageIds(html: string): number[] {
 }
 
 /**
- * Checks if the parsed list contains regular (non-pinned) messages older than yesterday midnight.
+ * Checks if the parsed list contains regular (non-pinned) messages older than the cutoff timestamp.
  */
-function detectOlderMessages(photos: TelegramPhoto[], blockIds: number[], yesterdayMidnight: number): boolean {
+function detectOlderMessages(photos: TelegramPhoto[], blockIds: number[], cutoffTimestamp: number): boolean {
   if (photos.length === 0 || blockIds.length === 0) return false;
   const maxId = Math.max(...blockIds);
   for (const photo of photos) {
     const msgId = parseInt(photo.messageId || '', 10);
-    // Ignore extremely small IDs (usually pinned/widgets) compared to the main sequence
+    // Ignore extremely small IDs (pinned posts) compared to the main sequence
     if (!isNaN(msgId) && msgId > maxId - 150) {
-      if (photo.timestamp && photo.timestamp < yesterdayMidnight) {
+      if (photo.timestamp && photo.timestamp < cutoffTimestamp) {
         return true;
       }
     }
@@ -159,12 +159,13 @@ function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any, handl
     // Switching to a completely different channel, overwrite
     channelPhotos = newPhotos;
   } else {
-    // Same channel, perform ID-based de-duplication and value preservation
+    // Same channel, perform ID-based de-duplication
     const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
     newPhotos.forEach(p => {
       if (existingPhotosMap.has(p.id)) {
         const existing = existingPhotosMap.get(p.id)!;
         existingPhotosMap.set(p.id, {
+          ...existing,
           ...p,
           likes: Math.max(p.likes || 0, existing.likes || 0),
           views: Math.max(p.views || 0, existing.views || 0)
@@ -176,11 +177,14 @@ function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any, handl
 
     channelPhotos = Array.from(existingPhotosMap.values())
       .sort((a, b) => {
+        const aId = parseInt(a.messageId || '0', 10);
+        const bId = parseInt(b.messageId || '0', 10);
+        if (aId && bId && aId !== bId) return bId - aId;
         const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
         const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
         return bTime - aTime;
       })
-      .slice(0, 1000); // Guard to prevent infinite growth
+      .slice(0, 1500); // Allow up to 1500 cached photos
   }
 
   if (mergedInfo) {
@@ -200,7 +204,7 @@ loadCacheFromDisk();
 
 /**
  * Deep sync function that paginates through Telegram channel web views
- * to load all recent photos (covering today and yesterday).
+ * to load all recent photos (covering today and recent days).
  */
 async function syncTelegramChannel(channelInput: string): Promise<boolean> {
   const handle = cleanChannelHandle(channelInput);
@@ -210,9 +214,9 @@ async function syncTelegramChannel(channelInput: string): Promise<boolean> {
     let currentBefore: number | null = null;
     let allParsedPhotos: TelegramPhoto[] = [];
     let mergedInfo: any = null;
-    const yesterdayMidnight = getBeijingYesterdayMidnight();
+    const cutoffTimestamp = getBeijingCutoffTimestamp();
 
-    console.log(`[Telegram Sync] Starting deep sync for @${handle}. Target yesterday midnight: ${new Date(yesterdayMidnight).toISOString()}`);
+    console.log(`[Telegram Sync] Starting deep sync for @${handle}. Cutoff time: ${new Date(cutoffTimestamp).toISOString()}`);
 
     for (let page = 0; page < 40; page++) {
       const targetUrl = currentBefore
@@ -251,7 +255,7 @@ async function syncTelegramChannel(channelInput: string): Promise<boolean> {
         minId = validIds.length > 0 ? Math.min(...validIds) : Math.min(...blockIds);
       }
 
-      const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, yesterdayMidnight);
+      const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, cutoffTimestamp);
 
       console.log(`[Telegram Sync] Page ${page + 1} summary: photos parsed=${parsed.photos.length}, total accumulated=${allParsedPhotos.length}, minId=${minId}, hasOlderMessages=${pageHasOlderMessages}`);
 
@@ -264,12 +268,12 @@ async function syncTelegramChannel(channelInput: string): Promise<boolean> {
         break;
       }
 
-      if (pageHasOlderMessages && page >= 2) {
-        console.log(`[Telegram Sync] Encountered posts older than yesterday midnight. Safely stopping pagination.`);
+      if (pageHasOlderMessages && page >= 3) {
+        console.log(`[Telegram Sync] Encountered posts older than cutoff date. Safely stopping pagination.`);
         break;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 350));
+      await new Promise(resolve => setTimeout(resolve, 250));
     }
 
     if (allParsedPhotos.length > 0) {

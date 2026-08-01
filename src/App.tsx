@@ -828,7 +828,12 @@ export default function App() {
 
     // Filter by date ranges
     if (filterMode === 'today') {
-      if (latestDate) {
+      // 1. Check if there are photos posted today in Beijing time (matching today date or timestamp >= today midnight)
+      const todayPhotos = result.filter(p => p.date === todayString || (p.timestamp && p.timestamp >= beijingTodayMidnightTimestamp));
+      if (todayPhotos.length > 0) {
+        result = todayPhotos;
+      } else if (latestDate) {
+        // 2. Fallback to latest active date if channel hasn't posted today
         result = result.filter(p => p.date === latestDate);
       }
     }
