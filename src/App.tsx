@@ -178,54 +178,63 @@ function ScrollableImage({
 
       {/* Info Card Body */}
       <div className="p-4 sm:p-5 flex flex-col gap-3 bg-slate-950/25 border-t border-slate-900">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-sm sm:text-base font-bold text-white tracking-tight line-clamp-1 group-hover:text-sky-400 transition-colors">
+        {photo.title && (
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-sm sm:text-base font-bold text-white tracking-tight line-clamp-2">
               {photo.title}
             </h2>
-            <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-              <Calendar className="w-3 h-3 text-slate-600" />
-              <span>{photo.date}</span>
-              {photo.album && (
-                <>
-                  <span>•</span>
-                  <span className="text-sky-400 font-semibold">{photo.album}</span>
-                </>
-              )}
-            </div>
           </div>
-        </div>
+        )}
 
-        {/* Description */}
+        {/* Description / Caption text */}
         {photo.description && (
-          <div className="text-xs text-slate-300 leading-relaxed font-normal">
+          <div className="text-xs text-slate-300 leading-relaxed font-normal bg-slate-950/40 p-3 rounded-xl border border-slate-900/50">
             <p className="whitespace-pre-wrap">{photo.description}</p>
           </div>
         )}
 
-        {/* Tags */}
-        {photo.tags && photo.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {photo.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-900 border border-slate-800/80 rounded-md text-[10px] text-slate-400"
-              >
-                <Tag className="w-2.5 h-2.5 text-slate-500" />
-                <span>#{tag}</span>
-              </span>
-            ))}
+        {/* Action Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-900/80 pt-3 mt-1 text-[11px] text-slate-500">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1 font-medium">
+              <Calendar className="w-3.5 h-3.5 text-slate-600" />
+              {photo.date}
+            </span>
+            {photo.views && (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-1 font-medium">
+                  <Eye className="w-3.5 h-3.5 text-slate-600" />
+                  {photo.views} 次阅读
+                </span>
+              </>
+            )}
           </div>
-        )}
-
-        {/* Interactions Row */}
-        <div className="flex items-center justify-between border-t border-slate-900/80 pt-3 mt-1 text-xs text-slate-400">
-          <div className="flex items-center gap-4 font-semibold">
-            {/* Views */}
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <Eye className="w-4 h-4 text-slate-600" />
-              <span>{photo.views || 0} 次阅读</span>
-            </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onCopyLink) onCopyLink(photo.url);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-sky-400 rounded-lg font-semibold border border-slate-800 transition-colors cursor-pointer"
+              title="复制原图链接"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>复制链接</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Trigger download
+                window.open(photo.url, '_blank');
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/15 text-sky-400 rounded-lg font-semibold border border-sky-500/5 transition-colors cursor-pointer"
+              title="查看并下载原图"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>保存图片</span>
+            </button>
           </div>
         </div>
       </div>
@@ -434,7 +443,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Filters & State
-  const [filterMode, setFilterMode] = useState<'today' | 'yesterday' | 'all'>('all');
+  const [filterMode, setFilterMode] = useState<'today' | 'all'>('today');
   const [layoutMode, setLayoutMode] = useState<'stream' | 'grid'>('stream');
   const [selectedAlbum, setSelectedAlbum] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -801,34 +810,16 @@ export default function App() {
     return Math.floor(localTime / msInDay) * msInDay - tzOffsetMs;
   }, []);
 
-  // Yesterday midnight (00:00:00) in Beijing Time
-  const beijingYesterdayMidnightTimestamp = useMemo(() => {
-    return beijingTodayMidnightTimestamp - 24 * 60 * 60 * 1000;
-  }, [beijingTodayMidnightTimestamp]);
-
-  const photosInTodayCount = useMemo(() => {
-    if (photos.length === 0) return 0;
-    return photos.filter(p => {
-      const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
-      return pTime >= beijingTodayMidnightTimestamp;
-    }).length;
-  }, [photos, beijingTodayMidnightTimestamp]);
-
-  const photosInYesterdayCount = useMemo(() => {
-    if (photos.length === 0) return 0;
-    return photos.filter(p => {
-      const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
-      return pTime >= beijingYesterdayMidnightTimestamp;
-    }).length;
-  }, [photos, beijingYesterdayMidnightTimestamp]);
-
-  // Extract unique albums
-  const availableAlbums = useMemo(() => {
-    const list = new Set<string>();
+  // Extract latest date present in the fetched photos to define "当天" (latest posts day)
+  const latestDate = useMemo(() => {
+    if (photos.length === 0) return '';
+    let maxDate = '';
     photos.forEach(p => {
-      if (p.album) list.add(p.album);
+      if (p.date && p.date > maxDate) {
+        maxDate = p.date;
+      }
     });
-    return ['All', ...Array.from(list)];
+    return maxDate;
   }, [photos]);
 
   // Compute processed and filtered photo stream
@@ -837,48 +828,23 @@ export default function App() {
 
     // Filter by date ranges
     if (filterMode === 'today') {
-      result = result.filter(p => {
-        const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
-        return pTime >= beijingTodayMidnightTimestamp;
-      });
-    } else if (filterMode === 'yesterday') {
-      result = result.filter(p => {
-        const pTime = p.timestamp || new Date(`${p.date}T00:00:00+08:00`).getTime();
-        return pTime >= beijingYesterdayMidnightTimestamp;
-      });
+      if (latestDate) {
+        result = result.filter(p => p.date === latestDate);
+      }
     }
 
-    // Category
-    if (selectedAlbum !== 'All') {
-      result = result.filter(p => p.album === selectedAlbum);
-    }
-
-    // Search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(p =>
-        p.title?.toLowerCase().includes(q) ||
-        p.description?.toLowerCase().includes(q) ||
-        p.tags?.some(t => t.toLowerCase().includes(q)) ||
-        p.album?.toLowerCase().includes(q)
-      );
-    }
-
-    // Sort order
-    if (sortBy === 'popular') {
-      result.sort((a, b) => (b.views || 0) - (a.views || 0));
-    } else if (sortBy === 'likes') {
-      result.sort((a, b) => (b.likes || 0) - (a.likes || 0));
-    } else {
-      result.sort((a, b) => {
-        const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
-        const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
-        return bTime - aTime;
-      });
-    }
+    // Sort order: always newest first by messageId / timestamp
+    result.sort((a, b) => {
+      const aId = parseInt(a.messageId || '0', 10);
+      const bId = parseInt(b.messageId || '0', 10);
+      if (aId && bId) return bId - aId;
+      const aTime = a.timestamp || 0;
+      const bTime = b.timestamp || 0;
+      return bTime - aTime;
+    });
 
     return result;
-  }, [photos, filterMode, beijingTodayMidnightTimestamp, beijingYesterdayMidnightTimestamp, selectedAlbum, searchQuery, sortBy]);
+  }, [photos, filterMode, latestDate]);
 
   // Slide-by-slide modal navigation calculations
   const activePhotoIndex = useMemo(() => {
@@ -979,6 +945,46 @@ export default function App() {
               </div>
             </div>
 
+            {/* Custom Filter & Control Toolbar (Focus on Today's Pictures) */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/40 border border-slate-900 p-4 rounded-2xl animate-fade-in shadow-xl">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setFilterMode('today')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    filterMode === 'today'
+                      ? 'bg-sky-500/10 text-sky-400 border-sky-500/30 font-extrabold shadow-[0_0_15px_rgba(14,165,233,0.1)]'
+                      : 'bg-transparent text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  显示当天图片 ({photos.filter(p => p.date === latestDate).length}张)
+                </button>
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    filterMode === 'all'
+                      ? 'bg-sky-500/10 text-sky-400 border-sky-500/30 font-extrabold shadow-[0_0_15px_rgba(14,165,233,0.1)]'
+                      : 'bg-transparent text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  显示历史全部 ({photos.length}张)
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {filterMode === 'today' ? `正在展示 ${latestDate || '今日'} 的全部图片素材` : '已加载全部历史图片'}
+                </span>
+                <button
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-sky-400 rounded-lg text-[11px] font-bold border border-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? '同步中...' : '同步最新'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Main Picture Stream Grid */}
             {processedPhotos.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 bg-slate-900/20 border border-slate-900 rounded-3xl p-6 text-center text-slate-400 gap-3 animate-fade-in">
@@ -1017,47 +1023,6 @@ export default function App() {
           >
             <ChevronUp className="w-5 h-5" />
           </button>
-        )}
-
-        {!isLoading && !errorMsg && processedPhotos.length > 0 && (
-          <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 p-2 rounded-2xl shadow-2xl backdrop-blur-sm">
-            <button
-              onClick={() => setIsAutoScrolling(!isAutoScrolling)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-slate-800 text-slate-300 hover:bg-slate-700"
-            >
-              {isAutoScrolling ? (
-                <>
-                  <Pause className="w-3.5 h-3.5 fill-current animate-pulse text-emerald-400" />
-                  <span className="text-emerald-400">滚动中</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>自动滚动</span>
-                </>
-              )}
-            </button>
-
-            <div className="flex bg-slate-950/80 p-0.5 rounded-lg border border-slate-900">
-              {[
-                { label: '慢', value: 1.05 },
-                { label: '中', value: 2.25 },
-                { label: '快', value: 4.8 }
-              ].map((speed) => (
-                <button
-                  key={speed.value}
-                  onClick={() => setScrollSpeed(speed.value)}
-                  className={`px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                    scrollSpeed === speed.value
-                      ? 'bg-sky-500/20 text-sky-400 font-bold'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {speed.label}
-                </button>
-              ))}
-            </div>
-          </div>
         )}
       </div>
 

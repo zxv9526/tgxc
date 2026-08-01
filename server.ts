@@ -98,8 +98,8 @@ async function syncTelegramChannel(channelInput: string) {
 
     console.log(`[Telegram Sync] Starting deep sync. Target yesterday midnight (Beijing): ${new Date(yesterdayMidnight).toISOString()}`);
 
-    // Fetch up to 12 pages of historical content to ensure we cover the entire day and yesterday
-    for (let page = 0; page < 12; page++) {
+    // Fetch up to 40 pages of historical content to ensure we cover the entire day and yesterday
+    for (let page = 0; page < 40; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
         : `https://t.me/s/${handle}`;
@@ -182,9 +182,9 @@ async function syncTelegramChannel(channelInput: string) {
         break; // Stop paginating if we can't find any message IDs on the page
       }
 
-      // Stop pagination early only if we have already gathered a rich set of photos (at least 150) and fetched at least 6 pages
-      if (allParsedPhotos.length >= 150 && page >= 5) {
-        console.log(`[Telegram Sync] Reached a rich collection of ${allParsedPhotos.length} photos on page ${page + 1}. Stopping pagination.`);
+      // Stop pagination early if we have found posts older than yesterday midnight, ensuring a thorough fetch of today and yesterday
+      if (pageHasOlderMessages && page >= 2) {
+        console.log(`[Telegram Sync] Encountered posts older than yesterday midnight. Safely stopping pagination.`);
         break;
       }
 
