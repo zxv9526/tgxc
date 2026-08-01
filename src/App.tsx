@@ -95,14 +95,15 @@ function ScrollableImage({
     }
   }
 
+  // Use the server-provided photo.url directly as the primary source!
+  // It is already correctly proxied and formatted.
   const sources = [
-    `/api/proxy-image?enc=${safeBtoa(rawImgUrl)}`,
-    `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+    photo.url,
     rawImgUrl,
     `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`
   ];
 
-  const currentSrc = sources[sourceIndex] || rawImgUrl;
+  const currentSrc = sources[sourceIndex] || photo.url;
 
   const handleLoad = () => setStatus('loaded');
   const handleError = () => {
@@ -274,14 +275,15 @@ function LightboxImage({
     }
   }
 
+  // Use the server-provided photo.url directly as the primary source!
+  // It is already correctly proxied and formatted.
   const sources = [
-    `/api/proxy-image?enc=${safeBtoa(rawImgUrl)}`,
-    `/api/proxy-image?url=${encodeURIComponent(rawImgUrl)}`,
+    photo.url,
     rawImgUrl,
     `https://corsproxy.io/?${encodeURIComponent(rawImgUrl)}`
   ];
 
-  const currentSrc = sources[sourceIndex] || rawImgUrl;
+  const currentSrc = sources[sourceIndex] || photo.url;
 
   const handleLoad = () => setStatus('loaded');
   const handleError = () => {
