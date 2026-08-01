@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Calendar, Eye, Share2, ExternalLink, ChevronLeft, ChevronRight, Copy, Check, Download } from 'lucide-react';
+import { X, Calendar, Eye, ExternalLink, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { BlogPost } from '../types';
 
 interface ArticleModalProps {
@@ -17,7 +17,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onNavigate,
   onOpenImage,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [fallbackRawMap, setFallbackRawMap] = useState<Record<string, boolean>>({});
 
   if (!post) return null;
 
@@ -25,19 +25,18 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const prevPost = currentIndex > 0 ? allPosts[currentIndex - 1] : null;
   const nextPost = currentIndex >= 0 && currentIndex < allPosts.length - 1 ? allPosts[currentIndex + 1] : null;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(post.telegramUrl || `https://t.me/amlhmfzl/${post.messageId}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const getProxyUrl = (url: string) => {
+  const getImageUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('data:')) return url;
-    if (url.includes('images.unsplash.com')) return url;
-    if (url.startsWith('/api/proxy-image')) return url;
+    if (fallbackRawMap[url]) return url;
+    if (url.startsWith('data:') || url.includes('images.unsplash.com') || url.startsWith('/api/proxy-image')) return url;
     if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
     return url;
+  };
+
+  const handleImageError = (url: string) => {
+    if (!fallbackRawMap[url]) {
+      setFallbackRawMap(prev => ({ ...prev, [url]: true }));
+    }
   };
 
   const lines = post.content ? post.content.split('\n') : [];
@@ -63,14 +62,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleCopy}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
-              title="复制文章链接"
-            >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            </button>
-
             <a
               href={post.telegramUrl}
               target="_blank"
@@ -130,9 +121,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   className="group relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 max-h-[500px] flex items-center justify-center cursor-zoom-in"
                 >
                   <img
-                    src={getProxyUrl(imgUrl)}
+                    src={getImageUrl(imgUrl)}
                     alt={`${post.title} - ${idx + 1}`}
                     referrerPolicy="no-referrer"
+                    onError={() => handleImageError(imgUrl)}
                     className="w-full h-full object-contain max-h-[500px] transition-transform duration-300 group-hover:scale-[1.01]"
                   />
                   <div className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-slate-300 text-xs font-medium border border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">

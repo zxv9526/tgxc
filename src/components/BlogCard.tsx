@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Calendar, Eye, Share2, ExternalLink, Download, Check, MessageSquare, Maximize2 } from 'lucide-react';
+import { Calendar, Eye, ExternalLink, Download, MessageSquare, Maximize2 } from 'lucide-react';
 import { BlogPost } from '../types';
 
 interface BlogCardProps {
   post: BlogPost;
-  viewMode: 'feed' | 'grid' | 'compact';
   onOpenArticle: (post: BlogPost) => void;
   onOpenImage: (url: string, title: string) => void;
   onSelectTag?: (tag: string) => void;
@@ -12,29 +11,27 @@ interface BlogCardProps {
 
 export const BlogCard: React.FC<BlogCardProps> = ({
   post,
-  viewMode,
   onOpenArticle,
   onOpenImage,
   onSelectTag,
 }) => {
-  const [copied, setCopied] = useState(false);
   const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>({});
+  const [fallbackRawMap, setFallbackRawMap] = useState<Record<string, boolean>>({});
 
-  const handleCopyLink = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const link = post.telegramUrl || `https://t.me/amlhmfzl/${post.messageId}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const getProxyUrl = (url: string) => {
+  const getImageUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('data:')) return url;
-    if (url.includes('images.unsplash.com')) return url;
-    if (url.startsWith('/api/proxy-image')) return url;
+    if (fallbackRawMap[url]) return url;
+    if (url.startsWith('data:') || url.includes('images.unsplash.com') || url.startsWith('/api/proxy-image')) return url;
     if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
     return url;
+  };
+
+  const handleImageError = (url: string) => {
+    if (!fallbackRawMap[url]) {
+      setFallbackRawMap(prev => ({ ...prev, [url]: true }));
+    } else {
+      setImageErrorMap(prev => ({ ...prev, [url]: true }));
+    }
   };
 
   // Format text into elements with clickable URLs and hashtags
@@ -97,70 +94,11 @@ export const BlogCard: React.FC<BlogCardProps> = ({
     );
   };
 
-  // Compact List View
-  if (viewMode === 'compact') {
-    return (
-      <div
-        onClick={() => onOpenArticle(post)}
-        className="group bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800/80 rounded-xl p-3.5 transition-all cursor-pointer flex items-center justify-between gap-4"
-      >
-        <div className="flex items-center gap-3.5 min-w-0 flex-1">
-          {post.photos.length > 0 && !imageErrorMap[post.photos[0]] ? (
-            <div className="w-12 h-12 rounded-lg bg-slate-950 overflow-hidden shrink-0 border border-slate-800">
-              <img
-                src={getProxyUrl(post.photos[0])}
-                alt={post.title}
-                referrerPolicy="no-referrer"
-                onError={() => setImageErrorMap(prev => ({ ...prev, [post.photos[0]]: true }))}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-              />
-            </div>
-          ) : (
-            <div className="w-12 h-12 rounded-lg bg-slate-800/60 shrink-0 flex items-center justify-center border border-slate-800 text-slate-500">
-              <MessageSquare className="w-5 h-5 text-sky-400/70" />
-            </div>
-          )}
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-semibold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
-                #{post.messageId}
-              </span>
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                {post.date}
-              </span>
-              <span className="text-xs text-slate-500 flex items-center gap-1 ml-auto sm:ml-0">
-                <Eye className="w-3 h-3" />
-                {post.views}
-              </span>
-            </div>
-            <h3 className="text-sm font-semibold text-slate-200 truncate group-hover:text-sky-300 transition-colors">
-              {post.title || 'Telegram 频道动态'}
-            </h3>
-          </div>
-        </div>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenArticle(post);
-          }}
-          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium shrink-0 transition-colors"
-        >
-          阅读
-        </button>
-      </div>
-    );
-  }
-
-  // Grid or Feed View
+  // Standard Article Card
   return (
     <article
       onClick={() => onOpenArticle(post)}
-      className={`group bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 rounded-2xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer ${
-        viewMode === 'grid' ? 'h-full' : 'shadow-lg'
-      }`}
+      className="group bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 rounded-2xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer shadow-lg h-full"
     >
       {/* Article Post Header */}
       <div className="p-4 border-b border-slate-800/50 flex items-center justify-between gap-3">
@@ -215,10 +153,10 @@ export const BlogCard: React.FC<BlogCardProps> = ({
             >
               {!imageErrorMap[post.photos[0]] ? (
                 <img
-                  src={getProxyUrl(post.photos[0])}
+                  src={getImageUrl(post.photos[0])}
                   alt={post.title}
                   referrerPolicy="no-referrer"
-                  onError={() => setImageErrorMap(prev => ({ ...prev, [post.photos[0]]: true }))}
+                  onError={() => handleImageError(post.photos[0])}
                   className="w-full h-full object-contain p-1 transition-transform duration-500 group-hover/img:scale-105"
                 />
               ) : (
@@ -250,10 +188,10 @@ export const BlogCard: React.FC<BlogCardProps> = ({
                   >
                     {!imageErrorMap[imgUrl] ? (
                       <img
-                        src={getProxyUrl(imgUrl)}
+                        src={getImageUrl(imgUrl)}
                         alt={`${post.title} - ${idx + 1}`}
                         referrerPolicy="no-referrer"
-                        onError={() => setImageErrorMap(prev => ({ ...prev, [imgUrl]: true }))}
+                        onError={() => handleImageError(imgUrl)}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover/subimg:scale-110"
                       />
                     ) : (
@@ -284,7 +222,7 @@ export const BlogCard: React.FC<BlogCardProps> = ({
             </h2>
           )}
 
-          {renderFormattedContent(post.content, viewMode === 'grid')}
+          {renderFormattedContent(post.content, true)}
         </div>
 
         {/* Tags */}
@@ -317,26 +255,6 @@ export const BlogCard: React.FC<BlogCardProps> = ({
             <span>阅读全文</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleCopyLink}
-              className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
-              title="复制文章链接"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-400" />
-                  <span className="text-emerald-400">已复制</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-3 h-3 text-slate-400" />
-                  <span>分享</span>
-                </>
-              )}
-            </button>
-          </div>
         </div>
       </div>
     </article>

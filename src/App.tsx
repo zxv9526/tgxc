@@ -18,7 +18,6 @@ export function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'feed' | 'grid' | 'compact'>('feed');
 
   const [selectedArticle, setSelectedArticle] = useState<BlogPost | null>(null);
   const [lightboxInfo, setLightboxInfo] = useState<{ url: string; title: string } | null>(null);
@@ -58,22 +57,29 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const handleRefresh = async () => {
+  const autoSync = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
       await fetch('/api/sync', { method: 'POST' });
       await fetchData();
     } catch (err) {
-      console.error('Failed to sync:', err);
+      console.error('Failed to auto sync:', err);
     } finally {
       setIsSyncing(false);
     }
-  };
+  }, [fetchData, isSyncing]);
+
+  useEffect(() => {
+    fetchData();
+    
+    // Set up automatic interval refresh every 60 seconds
+    const interval = setInterval(() => {
+      autoSync();
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [fetchData, autoSync]);
 
   // Compute all available tags and their frequency count
   const popularTags = useMemo(() => {
@@ -147,9 +153,6 @@ export function App() {
           setSearchQuery(q);
           setVisibleCount(24);
         }}
-        viewMode={viewMode}
-        onViewModeChange={(m) => setViewMode(m)}
-        onRefresh={handleRefresh}
       />
 
       {/* Main Container */}
@@ -227,20 +230,11 @@ export function App() {
           </div>
         ) : (
           /* Post Feed Container */
-          <div
-            className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-                : viewMode === 'compact'
-                ? 'space-y-3'
-                : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6'
-            }
-          >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             {displayedPosts.map((post) => (
               <BlogCard
                 key={post.id}
                 post={post}
-                viewMode={viewMode}
                 onOpenArticle={(p) => setSelectedArticle(p)}
                 onOpenImage={(url, title) => setLightboxInfo({ url, title })}
                 onSelectTag={(tag) => {
