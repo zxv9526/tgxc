@@ -34,34 +34,175 @@ let channelPhotos: TelegramPhoto[] = [];
 const cacheFilePath = path.join(__dirname, 'channel_photos_cache.json');
 const configCacheFilePath = path.join(__dirname, 'channel_config_cache.json');
 
-// Try loading cached data from disk on startup
-try {
-  if (fs.existsSync(cacheFilePath)) {
-    const data = fs.readFileSync(cacheFilePath, 'utf8');
-    channelPhotos = JSON.parse(data);
-    console.log(`[Cache Load] Successfully loaded ${channelPhotos.length} photos from disk cache.`);
+/**
+ * Loads cached photos and config from disk. Falls back to defaultPhotos if empty.
+ */
+function loadCacheFromDisk(): void {
+  try {
+    if (fs.existsSync(cacheFilePath)) {
+      const data = fs.readFileSync(cacheFilePath, 'utf8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        channelPhotos = parsed;
+        console.log(`[Cache Load] Successfully loaded ${channelPhotos.length} photos from disk cache.`);
+      }
+    }
+  } catch (e) {
+    console.warn('[Cache Load] Error loading photos cache:', e);
   }
-} catch (e) {
-  console.warn('[Cache Load] Error loading photos cache:', e);
-}
 
-if (!channelPhotos || channelPhotos.length === 0) {
-  channelPhotos = [...defaultPhotos];
-  console.log(`[Fallback Init] Initialized with ${defaultPhotos.length} high-quality default fallback photos.`);
-}
-
-try {
-  if (fs.existsSync(configCacheFilePath)) {
-    const data = fs.readFileSync(configCacheFilePath, 'utf8');
-    channelConfig = { ...channelConfig, ...JSON.parse(data) };
-    console.log(`[Cache Load] Successfully loaded channel config from disk cache.`);
+  if (!channelPhotos || channelPhotos.length === 0) {
+    channelPhotos = [...defaultPhotos];
+    console.log(`[Fallback Init] Initialized with ${defaultPhotos.length} high-quality default fallback photos.`);
   }
-} catch (e) {
-  console.warn('[Cache Load] Error loading config cache:', e);
+
+  try {
+    if (fs.existsSync(configCacheFilePath)) {
+      const data = fs.readFileSync(configCacheFilePath, 'utf8');
+      const parsedConfig = JSON.parse(data);
+      channelConfig = { ...channelConfig, ...parsedConfig };
+      console.log(`[Cache Load] Successfully loaded channel config from disk cache.`);
+    }
+  } catch (e) {
+    console.warn('[Cache Load] Error loading config cache:', e);
+  }
 }
 
-// Helper function to fetch real Telegram channel web view with pagination to load earlier posts
-async function syncTelegramChannel(channelInput: string) {
+/**
+ * Persists the current photos and config state to disk cache.
+ */
+function saveCacheToDisk(): void {
+  try {
+    fs.writeFileSync(cacheFilePath, JSON.stringify(channelPhotos, null, 2), 'utf8');
+    fs.writeFileSync(configCacheFilePath, JSON.stringify(channelConfig, null, 2), 'utf8');
+    console.log(`[Cache Save] Successfully saved ${channelPhotos.length} photos and channel config to disk cache.`);
+  } catch (err) {
+    console.warn('[Cache Save] Failed to write cache files:', err);
+  }
+}
+
+/**
+ * Calculates Beijing time's yesterday midnight (00:00:00 - 24h) timestamp.
+ */
+function getBeijingYesterdayMidnight(): number {
+  let yesterdayMidnight = Date.now() - 48 * 60 * 60 * 1000;
+  try {
+    const d = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric'
+    });
+    const parts = formatter.formatToParts(d);
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+    if (year && month && day) {
+      const mm = month.padStart(2, '0');
+      const dd = day.padStart(2, '0');
+      const todayMidnight = new Date(`${year}-${mm}-${dd}T00:00:00+08:00`);
+      if (!isNaN(todayMidnight.getTime())) {
+        yesterdayMidnight = todayMidnight.getTime() - 24 * 60 * 60 * 1000;
+      }
+    }
+  } catch (e) {
+    console.error('[Date Helper Error]:', e);
+  }
+  return yesterdayMidnight;
+}
+
+/**
+ * Extracts message numeric IDs from raw Telegram HTML widget payload.
+ */
+function extractMessageIds(html: string): number[] {
+  const messageBlocks = html.split(/class="tgme_widget_message\s+/i);
+  const blockIds: number[] = [];
+  for (let i = 1; i < messageBlocks.length; i++) {
+    const block = messageBlocks[i];
+    const msgIdMatch = block.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || block.match(/data-post="[^\/]+\/(\d+)"/i);
+    if (msgIdMatch && msgIdMatch[1]) {
+      const idNum = parseInt(msgIdMatch[1], 10);
+      if (!isNaN(idNum)) {
+        blockIds.push(idNum);
+      }
+    }
+  }
+  return blockIds;
+}
+
+/**
+ * Checks if the parsed list contains regular (non-pinned) messages older than yesterday midnight.
+ */
+function detectOlderMessages(photos: TelegramPhoto[], blockIds: number[], yesterdayMidnight: number): boolean {
+  if (photos.length === 0 || blockIds.length === 0) return false;
+  const maxId = Math.max(...blockIds);
+  for (const photo of photos) {
+    const msgId = parseInt(photo.messageId || '', 10);
+    // Ignore extremely small IDs (usually pinned/widgets) compared to the main sequence
+    if (!isNaN(msgId) && msgId > maxId - 150) {
+      if (photo.timestamp && photo.timestamp < yesterdayMidnight) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Merges newly parsed photos and channel info metadata into the active caches.
+ */
+function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any, handle: string): void {
+  if (newPhotos.length === 0) return;
+
+  if (handle !== channelConfig.handle) {
+    // Switching to a completely different channel, overwrite
+    channelPhotos = newPhotos;
+  } else {
+    // Same channel, perform ID-based de-duplication and value preservation
+    const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
+    newPhotos.forEach(p => {
+      if (existingPhotosMap.has(p.id)) {
+        const existing = existingPhotosMap.get(p.id)!;
+        existingPhotosMap.set(p.id, {
+          ...p,
+          likes: Math.max(p.likes || 0, existing.likes || 0),
+          views: Math.max(p.views || 0, existing.views || 0)
+        });
+      } else {
+        existingPhotosMap.set(p.id, p);
+      }
+    });
+
+    channelPhotos = Array.from(existingPhotosMap.values())
+      .sort((a, b) => {
+        const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
+        const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
+        return bTime - aTime;
+      })
+      .slice(0, 1000); // Guard to prevent infinite growth
+  }
+
+  if (mergedInfo) {
+    channelConfig.channelName = mergedInfo.channelName || channelConfig.channelName;
+    channelConfig.channelBio = mergedInfo.channelBio || channelConfig.channelBio;
+    channelConfig.avatarUrl = mergedInfo.avatarUrl || channelConfig.avatarUrl;
+    channelConfig.bannerUrl = mergedInfo.bannerUrl || channelConfig.bannerUrl;
+    if (mergedInfo.totalMembers) {
+      channelConfig.totalMembers = mergedInfo.totalMembers;
+    }
+  }
+  channelConfig.handle = handle;
+}
+
+// Initialize and load disk cache on server boot
+loadCacheFromDisk();
+
+/**
+ * Deep sync function that paginates through Telegram channel web views
+ * to load all recent photos (covering today and yesterday).
+ */
+async function syncTelegramChannel(channelInput: string): Promise<boolean> {
   const handle = cleanChannelHandle(channelInput);
   if (!handle) return false;
 
@@ -69,36 +210,10 @@ async function syncTelegramChannel(channelInput: string) {
     let currentBefore: number | null = null;
     let allParsedPhotos: TelegramPhoto[] = [];
     let mergedInfo: any = null;
+    const yesterdayMidnight = getBeijingYesterdayMidnight();
 
-    // Yesterday midnight (00:00:00) in Beijing Time
-    let yesterdayMidnight = Date.now() - 48 * 60 * 60 * 1000;
-    try {
-      const d = new Date();
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Asia/Shanghai',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric'
-      });
-      const parts = formatter.formatToParts(d);
-      const year = parts.find(p => p.type === 'year')?.value;
-      const month = parts.find(p => p.type === 'month')?.value;
-      const day = parts.find(p => p.type === 'day')?.value;
-      if (year && month && day) {
-        const mm = month.padStart(2, '0');
-        const dd = day.padStart(2, '0');
-        const todayMidnight = new Date(`${year}-${mm}-${dd}T00:00:00+08:00`);
-        if (!isNaN(todayMidnight.getTime())) {
-          yesterdayMidnight = todayMidnight.getTime() - 24 * 60 * 60 * 1000;
-        }
-      }
-    } catch (e) {
-      console.error('[Sync Date Error]:', e);
-    }
+    console.log(`[Telegram Sync] Starting deep sync for @${handle}. Target yesterday midnight: ${new Date(yesterdayMidnight).toISOString()}`);
 
-    console.log(`[Telegram Sync] Starting deep sync. Target yesterday midnight (Beijing): ${new Date(yesterdayMidnight).toISOString()}`);
-
-    // Fetch up to 40 pages of historical content to ensure we cover the entire day and yesterday
     for (let page = 0; page < 40; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
@@ -128,119 +243,38 @@ async function syncTelegramChannel(channelInput: string) {
         allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
       }
 
-      // 1. Find the true minimum numeric message ID on the current page to query messages preceding it
-      const messageBlocks = html.split(/class="tgme_widget_message\s+/i);
-      const blockIds: number[] = [];
-      for (let i = 1; i < messageBlocks.length; i++) {
-        const block = messageBlocks[i];
-        const msgIdMatch = block.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || block.match(/data-post="[^\/]+\/(\d+)"/i);
-        if (msgIdMatch && msgIdMatch[1]) {
-          const idNum = parseInt(msgIdMatch[1], 10);
-          if (!isNaN(idNum)) {
-            blockIds.push(idNum);
-          }
-        }
-      }
-
+      const blockIds = extractMessageIds(html);
       let minId: number | null = null;
       if (blockIds.length > 0) {
         const maxId = Math.max(...blockIds);
-        // Filter out pinned posts/widgets that have extremely small IDs compared to the main feed sequence on this page
         const validIds = blockIds.filter(id => id > maxId - 150);
-        if (validIds.length > 0) {
-          minId = Math.min(...validIds);
-        } else {
-          minId = Math.min(...blockIds);
-        }
+        minId = validIds.length > 0 ? Math.min(...validIds) : Math.min(...blockIds);
       }
 
-      // 2. Check if the current page has regular (non-pinned) messages older than yesterday midnight (Beijing)
-      let pageHasOlderMessages = false;
-      if (parsed.photos.length > 0 && blockIds.length > 0) {
-        const maxId = Math.max(...blockIds);
-        for (const photo of parsed.photos) {
-          const msgId = parseInt(photo.messageId || '', 10);
-          if (!isNaN(msgId) && msgId > maxId - 150) {
-            // This is a regular post (not pinned)
-            if (photo.timestamp && photo.timestamp < yesterdayMidnight) {
-              pageHasOlderMessages = true;
-              break;
-            }
-          }
-        }
-      }
+      const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, yesterdayMidnight);
 
       console.log(`[Telegram Sync] Page ${page + 1} summary: photos parsed=${parsed.photos.length}, total accumulated=${allParsedPhotos.length}, minId=${minId}, hasOlderMessages=${pageHasOlderMessages}`);
 
       if (minId !== null) {
-        // If the minId isn't smaller, break to prevent infinite loop
         if (currentBefore !== null && minId >= currentBefore) {
           break;
         }
         currentBefore = minId;
       } else {
-        break; // Stop paginating if we can't find any message IDs on the page
+        break;
       }
 
-      // Stop pagination early if we have found posts older than yesterday midnight, ensuring a thorough fetch of today and yesterday
       if (pageHasOlderMessages && page >= 2) {
         console.log(`[Telegram Sync] Encountered posts older than yesterday midnight. Safely stopping pagination.`);
         break;
       }
 
-      // Add a tiny delay between fetches to respect Telegram's server limits
       await new Promise(resolve => setTimeout(resolve, 350));
     }
 
     if (allParsedPhotos.length > 0) {
-      if (handle !== channelConfig.handle) {
-        // Overwrite if switching to a completely different channel
-        channelPhotos = allParsedPhotos;
-      } else {
-        // Merge with existing photos if it's the same channel
-        const existingPhotosMap = new Map(channelPhotos.map(p => [p.id, p]));
-        allParsedPhotos.forEach(p => {
-          if (existingPhotosMap.has(p.id)) {
-            const existing = existingPhotosMap.get(p.id)!;
-            existingPhotosMap.set(p.id, {
-              ...p,
-              likes: Math.max(p.likes || 0, existing.likes || 0),
-              views: Math.max(p.views || 0, existing.views || 0)
-            });
-          } else {
-            existingPhotosMap.set(p.id, p);
-          }
-        });
-        channelPhotos = Array.from(existingPhotosMap.values())
-          .sort((a, b) => {
-            const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
-            const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
-            return bTime - aTime;
-          })
-          .slice(0, 1000); // Limit to last 1000 photos to prevent infinite growth
-      }
-
-      if (mergedInfo) {
-        channelConfig.channelName = mergedInfo.channelName || channelConfig.channelName;
-        channelConfig.channelBio = mergedInfo.channelBio || channelConfig.channelBio;
-        channelConfig.avatarUrl = mergedInfo.avatarUrl || channelConfig.avatarUrl;
-        channelConfig.bannerUrl = mergedInfo.bannerUrl || channelConfig.bannerUrl;
-        if (mergedInfo.totalMembers) {
-          channelConfig.totalMembers = mergedInfo.totalMembers;
-        }
-      }
-      channelConfig.handle = handle;
-      console.log(`[Telegram Sync] Successfully loaded and merged ${allParsedPhotos.length} photos for @${handle}. Total cached: ${channelPhotos.length}`);
-      
-      // Save cache to disk to persist across server restarts
-      try {
-        fs.writeFileSync(cacheFilePath, JSON.stringify(channelPhotos, null, 2), 'utf8');
-        fs.writeFileSync(configCacheFilePath, JSON.stringify(channelConfig, null, 2), 'utf8');
-        console.log(`[Cache Save] Successfully saved ${channelPhotos.length} photos and channel config to disk cache.`);
-      } catch (cacheErr) {
-        console.warn('[Cache Save] Failed to write cache files:', cacheErr);
-      }
-      
+      mergePhotosWithCache(allParsedPhotos, mergedInfo, handle);
+      saveCacheToDisk();
       return true;
     } else {
       console.warn(`[Telegram Sync] No photos found in html for @${handle}`);
