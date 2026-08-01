@@ -7,5 +7,3 @@ export interface TelegramPhoto {
   timestamp?: number;
   messageId?: string;
 }
-
-export type FilterMode = 'today' | 'all';
