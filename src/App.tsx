@@ -810,46 +810,29 @@ export default function App() {
     return Math.floor(localTime / msInDay) * msInDay - tzOffsetMs;
   }, []);
 
-  // Extract latest date present in the fetched photos to define "当天" (latest posts day)
-  const latestDate = useMemo(() => {
-    if (photos.length === 0) return '';
-    let maxDate = '';
-    photos.forEach(p => {
-      if (p.date && p.date > maxDate) {
-        maxDate = p.date;
-      }
+  // Extract photos for Beijing Time TODAY
+  const todayPhotos = useMemo(() => {
+    return photos.filter(p => {
+      return p.date === todayString || (p.timestamp && p.timestamp >= beijingTodayMidnightTimestamp);
     });
-    return maxDate;
-  }, [photos]);
+  }, [photos, todayString, beijingTodayMidnightTimestamp]);
 
   // Compute processed and filtered photo stream
   const processedPhotos = useMemo(() => {
-    let result = [...photos];
-
-    // Filter by date ranges
-    if (filterMode === 'today') {
-      // 1. Check if there are photos posted today in Beijing time (matching today date or timestamp >= today midnight)
-      const todayPhotos = result.filter(p => p.date === todayString || (p.timestamp && p.timestamp >= beijingTodayMidnightTimestamp));
-      if (todayPhotos.length > 0) {
-        result = todayPhotos;
-      } else if (latestDate) {
-        // 2. Fallback to latest active date if channel hasn't posted today
-        result = result.filter(p => p.date === latestDate);
-      }
-    }
+    let result = filterMode === 'today' ? [...todayPhotos] : [...photos];
 
     // Sort order: always newest first by messageId / timestamp
     result.sort((a, b) => {
       const aId = parseInt(a.messageId || '0', 10);
       const bId = parseInt(b.messageId || '0', 10);
-      if (aId && bId) return bId - aId;
+      if (aId && bId && aId !== bId) return bId - aId;
       const aTime = a.timestamp || 0;
       const bTime = b.timestamp || 0;
       return bTime - aTime;
     });
 
     return result;
-  }, [photos, filterMode, latestDate]);
+  }, [photos, todayPhotos, filterMode]);
 
   // Slide-by-slide modal navigation calculations
   const activePhotoIndex = useMemo(() => {
@@ -961,7 +944,7 @@ export default function App() {
                       : 'bg-transparent text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
                   }`}
                 >
-                  显示当天图片 ({photos.filter(p => p.date === latestDate).length}张)
+                  显示当天图片 ({todayPhotos.length}张)
                 </button>
                 <button
                   onClick={() => setFilterMode('all')}
@@ -977,7 +960,11 @@ export default function App() {
 
               <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
                 <span className="text-[11px] text-slate-500 font-medium">
-                  {filterMode === 'today' ? `正在展示 ${latestDate || '今日'} 的全部图片素材` : '已加载全部历史图片'}
+                  {filterMode === 'today'
+                    ? (todayPhotos.length > 0
+                        ? `北京时间今日 (${todayString}) 已有 ${todayPhotos.length} 张图片`
+                        : `北京时间今日 (${todayString}) 尚无更新，等待频道推送...`)
+                    : `已加载全部 ${photos.length} 张历史图片`}
                 </span>
                 <button
                   onClick={handleManualSync}
@@ -992,12 +979,38 @@ export default function App() {
 
             {/* Main Picture Stream Grid */}
             {processedPhotos.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-24 bg-slate-900/20 border border-slate-900 rounded-3xl p-6 text-center text-slate-400 gap-3 animate-fade-in">
-                <Compass className="w-12 h-12 text-slate-700 animate-pulse" />
-                <h3 className="text-base font-bold text-slate-300">暂无图片内容</h3>
-                <p className="text-xs max-w-sm">
-                  未找到任何图片发布，请稍后再试。
-                </p>
+              <div className="flex flex-col items-center justify-center py-20 bg-slate-900/30 border border-slate-900 rounded-3xl p-8 text-center text-slate-400 gap-4 animate-fade-in shadow-inner">
+                <div className="w-14 h-14 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                  <Compass className="w-7 h-7 animate-pulse" />
+                </div>
+                <div className="flex flex-col gap-1.5 max-w-md">
+                  <h3 className="text-base font-bold text-slate-200">
+                    {filterMode === 'today' ? `今日（${todayString}）暂无图片更新` : '暂无图片内容'}
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {filterMode === 'today'
+                      ? `按照北京时间计算，频道在今日（${todayString}）尚未推送新图片。系统已在零点自动清空昨日列表，正在持续监测频道最新推送中...`
+                      : '未找到符合条件的图片发布。'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
+                  <button
+                    onClick={handleManualSync}
+                    disabled={isSyncing}
+                    className="px-4 py-2 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-500/20 border border-sky-400/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? '同步中...' : '重新检测 Telegram 频道'}</span>
+                  </button>
+                  {photos.length > 0 && filterMode === 'today' && (
+                    <button
+                      onClick={() => setFilterMode('all')}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition-all cursor-pointer"
+                    >
+                      查看历史全部图片 ({photos.length}张)
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className={layoutMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-5' : 'flex flex-col gap-6'}>
