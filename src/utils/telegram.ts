@@ -9,6 +9,7 @@ export interface TelegramPhoto {
   views: number;
   author: string;
   date: string;
+  timestamp?: number;
   aspectRatio: string;
   telegramUrl?: string;
   messageId?: string;
@@ -201,10 +202,12 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
       return d.toISOString().split('T')[0];
     };
 
+    let timestamp = Date.now();
     if (dateMatch && dateMatch[1]) {
       const parsedDate = new Date(dateMatch[1]);
       if (!isNaN(parsedDate.getTime())) {
         date = getBeijingDateString(parsedDate);
+        timestamp = parsedDate.getTime();
       } else {
         date = getBeijingDateString(new Date());
       }
@@ -230,6 +233,7 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
         views,
         author: `@${handle}`,
         date,
+        timestamp,
         aspectRatio: '16:9',
         telegramUrl,
         messageId

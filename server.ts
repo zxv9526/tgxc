@@ -241,6 +241,7 @@ app.post('/api/photos', (req, res) => {
     views: 12,
     author: 'Channel Admin',
     date: new Date().toISOString().split('T')[0],
+    timestamp: Date.now(),
     aspectRatio: aspectRatio || '16:9'
   };
 

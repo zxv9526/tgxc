@@ -872,11 +872,24 @@ export default function App() {
   };
 
   const todayString = getTodayString();
-  const hasTodayPhotos = photos.some(p => p.date === todayString);
-  const latestDateInChannel = photos.length > 0 
-    ? photos.reduce((max, p) => p.date > max ? p.date : max, photos[0].date) 
-    : '';
-  const targetDateString = hasTodayPhotos ? todayString : latestDateInChannel;
+
+  // Calculate sliding 24-hour range of photos
+  const latestPhotoTimestamp = useMemo(() => {
+    if (photos.length === 0) return Date.now();
+    return photos.reduce((max, p) => {
+      const pTime = p.timestamp || new Date(p.date).getTime();
+      return pTime > max ? pTime : max;
+    }, 0);
+  }, [photos]);
+
+  const photosInLast24HoursCount = useMemo(() => {
+    if (photos.length === 0) return 0;
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    return photos.filter(p => {
+      const pTime = p.timestamp || new Date(p.date).getTime();
+      return (latestPhotoTimestamp - pTime) <= twentyFourHoursMs;
+    }).length;
+  }, [photos, latestPhotoTimestamp]);
 
   // Extract unique albums
   const availableAlbums = useMemo(() => {
@@ -891,9 +904,13 @@ export default function App() {
   const processedPhotos = useMemo(() => {
     let result = [...photos];
 
-    // Date range mode
+    // Date range mode: Show photos within 24 hours of the latest photo's timestamp
     if (filterMode === 'today') {
-      result = result.filter(p => p.date === targetDateString);
+      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+      result = result.filter(p => {
+        const pTime = p.timestamp || new Date(p.date).getTime();
+        return (latestPhotoTimestamp - pTime) <= twentyFourHoursMs;
+      });
     }
 
     // Category
@@ -922,7 +939,7 @@ export default function App() {
     }
 
     return result;
-  }, [photos, filterMode, targetDateString, selectedAlbum, searchQuery, sortBy]);
+  }, [photos, filterMode, latestPhotoTimestamp, selectedAlbum, searchQuery, sortBy]);
 
   // Slide-by-slide modal navigation calculations
   const activePhotoIndex = useMemo(() => {
@@ -1014,7 +1031,7 @@ export default function App() {
                         : 'bg-slate-900/85 text-slate-400 hover:text-white border border-slate-850'
                     }`}
                   >
-                    {hasTodayPhotos ? '今日图片' : '最新更新'}
+                    24小时内动态 ({photosInLast24HoursCount})
                   </button>
                   <button
                     onClick={() => setFilterMode('all')}
@@ -1125,10 +1142,7 @@ export default function App() {
                 <div>
                   {filterMode === 'today' ? (
                     <span>
-                      {!hasTodayPhotos && (
-                        <span className="text-slate-500 mr-1.5">今日 (上海时间 {todayString}) 暂无发布，已为您切换展示</span>
-                      )}
-                      最新同步发布: <strong className="text-sky-400">{targetDateString}</strong> ({processedPhotos.length} 张图片)
+                      正在展示最近 24 小时内的发布动态 ({processedPhotos.length} 张图片)
                     </span>
                   ) : (
                     <span>
