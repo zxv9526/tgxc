@@ -182,9 +182,9 @@ async function syncTelegramChannel(channelInput: string) {
         break; // Stop paginating if we can't find any message IDs on the page
       }
 
-      // If this page already contains messages older than yesterday midnight, AND we have fetched at least 3 pages, we can stop.
-      if (pageHasOlderMessages && page >= 2) {
-        console.log(`[Telegram Sync] Reached messages older than yesterday midnight and fetched 3+ pages. Stopping pagination.`);
+      // Stop pagination early only if we have already gathered a rich set of photos (at least 150) and fetched at least 6 pages
+      if (allParsedPhotos.length >= 150 && page >= 5) {
+        console.log(`[Telegram Sync] Reached a rich collection of ${allParsedPhotos.length} photos on page ${page + 1}. Stopping pagination.`);
         break;
       }
 

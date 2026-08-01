@@ -267,21 +267,16 @@ export async function fetchTelegramChannelFromClient(channelHandle: string): Pro
   const handle = cleanChannelHandle(channelHandle);
   if (!handle) return null;
 
-  const targetUrl = `https://t.me/s/${handle}`;
-
-  // Try multiple endpoints/proxies
-  const fetchSources = [
+  // First, let's try our local API endpoints because they are fast and cached
+  const localEndpoints = [
     `/api/telegram/sync?channel=${encodeURIComponent(handle)}`,
-    `/api/photos?channel=${encodeURIComponent(handle)}`,
-    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
+    `/api/photos?channel=${encodeURIComponent(handle)}`
   ];
 
-  for (const source of fetchSources) {
+  for (const endpoint of localEndpoints) {
     try {
-      const res = await fetch(source);
+      const res = await fetch(endpoint);
       if (!res.ok) continue;
-
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const json = await res.json();
@@ -297,17 +292,103 @@ export async function fetchTelegramChannelFromClient(channelHandle: string): Pro
             photos: json.photos
           };
         }
-      } else {
+      }
+    } catch (e) {
+      console.warn(`Failed fetching local endpoint ${endpoint}:`, e);
+    }
+  }
+
+  // If local API didn't return photos, let's perform a multi-page client-side scrape using CORS proxies
+  const proxies = [
+    (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ];
+
+  for (const getProxyUrl of proxies) {
+    try {
+      let mergedInfo: TelegramChannelInfo | null = null;
+      let allPhotos: TelegramPhoto[] = [];
+      let currentBefore: number | null = null;
+      
+      // Scrape up to 5 pages on client side to get a healthy set of 50-80 images
+      for (let page = 0; page < 5; page++) {
+        const targetUrl = currentBefore 
+          ? `https://t.me/s/${handle}?before=${currentBefore}`
+          : `https://t.me/s/${handle}`;
+          
+        const proxyUrl = getProxyUrl(targetUrl);
+        const res = await fetch(proxyUrl);
+        if (!res.ok) {
+          if (allPhotos.length > 0) break;
+          continue;
+        }
+
         const html = await res.text();
-        if (html && html.includes('tgme_widget_message')) {
-          const parsed = parseTelegramWebHtml(html, handle);
-          if (parsed.photos.length > 0) {
-            return parsed;
+        if (!html || !html.includes('tgme_widget_message')) {
+          if (allPhotos.length > 0) break;
+          continue;
+        }
+
+        const parsed = parseTelegramWebHtml(html, handle);
+        if (!mergedInfo) {
+          mergedInfo = parsed.info;
+        }
+        if (parsed.photos.length > 0) {
+          allPhotos = [...allPhotos, ...parsed.photos];
+        }
+
+        // Find the min message ID for the next historical page
+        const validIds = parsed.photos
+          .map(p => parseInt(p.messageId || '', 10))
+          .filter(id => !isNaN(id));
+          
+        if (validIds.length > 0) {
+          const minId = Math.min(...validIds);
+          if (currentBefore !== null && minId >= currentBefore) {
+            break;
+          }
+          currentBefore = minId;
+        } else {
+          // Fallback parsing from raw HTML message blocks if parsed photos are empty but messages exist
+          const messageBlocks = html.split(/class="tgme_widget_message\s+/i);
+          const blockIds: number[] = [];
+          for (let i = 1; i < messageBlocks.length; i++) {
+            const block = messageBlocks[i];
+            const msgIdMatch = block.match(/href="https:\/\/t\.me\/[^\/]+\/(\d+)"/i) || block.match(/data-post="[^\/]+\/(\d+)"/i);
+            if (msgIdMatch && msgIdMatch[1]) {
+              const idNum = parseInt(msgIdMatch[1], 10);
+              if (!isNaN(idNum)) blockIds.push(idNum);
+            }
+          }
+          if (blockIds.length > 0) {
+            const minId = Math.min(...blockIds);
+            if (currentBefore !== null && minId >= currentBefore) {
+              break;
+            }
+            currentBefore = minId;
+          } else {
+            break;
           }
         }
+
+        // Delay between page requests to avoid hitting rate limits too fast
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      if (allPhotos.length > 0) {
+        return {
+          info: mergedInfo || {
+            channelName: handle,
+            channelBio: `Telegram @${handle} 频道图集`,
+            avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop',
+            bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
+            handle
+          },
+          photos: allPhotos
+        };
       }
     } catch (err) {
-      console.warn(`Failed fetching from source ${source}:`, err);
+      console.warn(`Failed fetching via client proxy:`, err);
     }
   }
 
