@@ -11,8 +11,8 @@ export const defaultPhotos: TelegramPhoto[] = [
     likes: 1240,
     views: 8940,
     author: "@amlhmfzl",
-    date: "2026-07-31",
-    timestamp: 1785513600000,
+    date: "2026-08-01",
+    timestamp: 1785600000000,
     aspectRatio: "16:9"
   },
   {

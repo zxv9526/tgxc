@@ -8,7 +8,7 @@ import { ImageOff, RefreshCw } from 'lucide-react';
 export function App() {
   const [photos, setPhotos] = useState<TelegramPhoto[]>([]);
   const [channelName, setChannelName] = useState('Telegram 频道图集');
-  const [filterMode, setFilterMode] = useState<FilterMode>('today');
+  const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<TelegramPhoto | null>(null);
 
