@@ -148,6 +148,15 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
         minId = validIds.length > 0 ? Math.min(...validIds) : Math.min(...blockIds);
       }
 
+      // Early break-out optimization: if all message IDs on this page are already in cache, stop fetching older pages
+      const currentPhotos = getChannelPhotos();
+      const existingMsgIds = new Set(currentPhotos.map(p => p.messageId).filter(Boolean));
+      const knownIdsCount = blockIds.filter(id => existingMsgIds.has(String(id))).length;
+      if (blockIds.length > 0 && knownIdsCount === blockIds.length && page >= 1) {
+        console.log(`[Telegram Sync] Stop early on page ${page + 1}: All ${knownIdsCount} messages on this page already exist in cache.`);
+        break;
+      }
+
       const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, cutoffTimestamp);
 
       if (minId !== null) {

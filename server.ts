@@ -32,7 +32,7 @@ setInterval(() => {
 app.use('/api', apiRouter);
 
 // --- Server-Side Asset & Route Handling ---
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production' || 
