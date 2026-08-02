@@ -4,7 +4,25 @@ import { TelegramPhoto } from '../src/types.js';
 import { defaultPhotos } from '../src/data/default_photos.js';
 import { cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 
-const cacheFilePath = path.join(process.cwd(), 'channel_photos_cache.json');
+let cacheFilePath = path.join(process.cwd(), 'channel_photos_cache.json');
+
+try {
+  // If running from compiled dist/server.cjs, __dirname will be /workspace/dist.
+  // We want to check the workspace root (one level up) first for the up-to-date cache file.
+  if (typeof __dirname !== 'undefined' && __dirname) {
+    const parentPath = path.join(__dirname, '..', 'channel_photos_cache.json');
+    if (fs.existsSync(parentPath)) {
+      cacheFilePath = parentPath;
+    } else {
+      const currentPath = path.join(__dirname, 'channel_photos_cache.json');
+      if (fs.existsSync(currentPath)) {
+        cacheFilePath = currentPath;
+      }
+    }
+  }
+} catch (e) {
+  // Fallback to default path
+}
 
 const initialChannelHandle = cleanChannelHandle(
   process.env.TELEGRAM_CHANNEL || process.env.TG_CHANNEL || process.env.CHANNEL_NAME || 'amlhmfzl'
