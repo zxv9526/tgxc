@@ -1,9 +1,64 @@
 import { Router, Request, Response } from 'express';
+import https from 'https';
+import http from 'http';
 import { channelConfig, channelPhotos, getChannelPhotos, getChannelConfig, getLastCacheUpdateTime } from '../storage.js';
 import { syncTelegramChannel } from '../telegramFetcher.js';
 import { groupPhotosToBlogPosts } from '../../src/utils/telegram.js';
 
 const router = Router();
+
+// Fallback helper to fetch image using native https module with option to bypass TLS verification
+function fetchWithHttpsModule(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedUrl = new URL(url);
+      const client = parsedUrl.protocol === 'https:' ? https : http;
+      
+      const options: https.RequestOptions = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        },
+        timeout: 15000,
+        rejectUnauthorized: false // Bypasses SSL cert issues in minimal/Alpine Docker/GCP environments
+      };
+
+      const req = client.get(url, options, (res) => {
+        // Handle redirects (e.g., 301, 302)
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          const redirectUrl = new URL(res.headers.location, url).toString();
+          resolve(fetchWithHttpsModule(redirectUrl));
+          return;
+        }
+
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTPS module returned status code ${res.statusCode}`));
+          return;
+        }
+
+        const contentType = res.headers['content-type'] || 'image/jpeg';
+        const chunks: Buffer[] = [];
+
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            buffer: Buffer.concat(chunks),
+            contentType
+          });
+        });
+      });
+
+      req.on('error', (err) => reject(err));
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 
 // Image Proxy Endpoint to bypass Telegram CDN Referrer / CORS restrictions
 router.get('/proxy-image', async (req: Request, res: Response) => {
@@ -37,19 +92,33 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
   }
 
   try {
-    const response = await fetch(imageUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    let buffer: Buffer;
+    let contentType = 'image/jpeg';
+
+    try {
+      // First attempt: Standard native fetch
+      const response = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        }
+      });
+
+      if (response.ok) {
+        contentType = response.headers.get('content-type') || 'image/jpeg';
+        const arrayBuffer = await response.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+      } else {
+        throw new Error(`Native fetch returned status ${response.status}`);
       }
-    });
-
-    if (!response.ok) {
-      return res.status(response.status).send('Failed to fetch image');
+    } catch (fetchErr) {
+      console.warn(`[Proxy Image] Native fetch failed for ${imageUrl}, trying fallback HTTPS module... Error:`, fetchErr instanceof Error ? fetchErr.message : fetchErr);
+      
+      // Second attempt: Fallback with HTTPS module (rejectUnauthorized: false)
+      const fallbackResult = await fetchWithHttpsModule(imageUrl);
+      buffer = fallbackResult.buffer;
+      contentType = fallbackResult.contentType;
     }
-
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -62,7 +131,7 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
 
     res.send(buffer);
   } catch (err) {
-    console.error('Image proxy error:', err);
+    console.error('Image proxy error for URL:', imageUrl, err);
     res.status(500).send('Proxy error');
   }
 });
