@@ -5,9 +5,10 @@ import { getDefaultPhotos } from './data/default_photos';
 import { Header } from './components/Header';
 import { TagFilter } from './components/TagFilter';
 import { BlogCard } from './components/BlogCard';
+import { PhotoCard } from './components/PhotoCard';
 import { ArticleModal } from './components/ArticleModal';
 import { LightboxModal, LightboxImageItem } from './components/LightboxModal';
-import { RefreshCw, ChevronDown, Layers, SearchX } from 'lucide-react';
+import { RefreshCw, ChevronDown, Layers, SearchX, LayoutGrid, List } from 'lucide-react';
 
 export function App() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -28,6 +29,7 @@ export function App() {
   } | null>(null);
 
   const [visibleCount, setVisibleCount] = useState(24);
+  const [viewMode, setViewMode] = useState<'blog' | 'gallery'>('blog');
 
   const fetchData = useCallback(async () => {
     try {
@@ -136,6 +138,36 @@ export function App() {
     return filteredPosts.slice(0, visibleCount);
   }, [filteredPosts, visibleCount]);
 
+  // Filter individual photos based on search query and selected hashtag
+  const filteredPhotos = useMemo(() => {
+    return rawPhotos.filter(photo => {
+      // 1. Tag filter
+      if (selectedTag) {
+        const hasTag = photo.tags?.some(t => t.toLowerCase() === selectedTag.toLowerCase());
+        if (!hasTag) return false;
+      }
+
+      // 2. Search query filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const inTitle = photo.title?.toLowerCase().includes(q);
+        const inContent = photo.description?.toLowerCase().includes(q);
+        const inMsgId = photo.messageId?.includes(q);
+        const inTags = photo.tags?.some(t => t.toLowerCase().includes(q));
+
+        if (!inTitle && !inContent && !inMsgId && !inTags) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [rawPhotos, selectedTag, searchQuery]);
+
+  const displayedPhotos = useMemo(() => {
+    return filteredPhotos.slice(0, visibleCount);
+  }, [filteredPhotos, visibleCount]);
+
   const handleOpenImage = useCallback((url: string, title?: string, postPhotos?: string[], currentIdx: number = 0) => {
     if (postPhotos && postPhotos.length > 1) {
       const images: LightboxImageItem[] = postPhotos.map((pUrl, i) => ({
@@ -205,11 +237,48 @@ export function App() {
           />
         )}
 
+        {/* View Mode & Filter Status Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-900/40 p-3.5 rounded-2xl border border-slate-800/60 shadow-inner">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-slate-200">
+              {viewMode === 'blog' ? '📰 博文视图' : '🖼️ 图库视图'}
+            </span>
+            <span className="text-xs text-slate-400 border-l border-slate-850 pl-3">
+              共加载了 {viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length} 个项目
+            </span>
+          </div>
+          
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800/80 w-fit self-end sm:self-auto">
+            <button
+              onClick={() => setViewMode('blog')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'blog'
+                  ? 'bg-sky-500 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>博文模式</span>
+            </button>
+            <button
+              onClick={() => setViewMode('gallery')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'gallery'
+                  ? 'bg-sky-500 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>图库模式</span>
+            </button>
+          </div>
+        </div>
+
         {/* Filter / Search Status */}
         {(selectedTag || searchQuery) && (
-          <div className="flex items-center justify-between bg-slate-900/40 px-4 py-2 rounded-xl border border-slate-800 text-xs text-slate-400">
+          <div className="flex items-center justify-between bg-slate-900/20 px-4 py-2 rounded-xl border border-slate-800/50 text-xs text-slate-400">
             <span>
-              已筛选 {filteredPosts.length} 篇文章
+              已筛选 {viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length} {viewMode === 'blog' ? '篇博文' : '张图片'}
               {selectedTag && <span className="text-sky-400 ml-1 font-semibold">#{selectedTag}</span>}
               {searchQuery && <span className="text-sky-400 ml-1 font-semibold">"{searchQuery}"</span>}
             </span>
@@ -226,10 +295,10 @@ export function App() {
         )}
 
         {/* Empty State */}
-        {filteredPosts.length === 0 ? (
+        {(viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length) === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-center gap-3 bg-slate-900/40 border border-slate-900 rounded-3xl p-8">
             <SearchX className="w-10 h-10 text-slate-600 mb-1" />
-            <p className="text-sm font-bold text-slate-300">没有找到相关博文</p>
+            <p className="text-sm font-bold text-slate-300">没有找到相关项目</p>
             <p className="text-xs text-slate-500">尝试更换搜索关键词或取消标签筛选</p>
             <button
               onClick={() => {
@@ -239,10 +308,10 @@ export function App() {
               className="mt-2 px-4 py-2 bg-sky-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>查看全部文章</span>
+              <span>查看全部内容</span>
             </button>
           </div>
-        ) : (
+        ) : viewMode === 'blog' ? (
           /* Post Feed Container */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             {displayedPosts.map((post) => (
@@ -258,16 +327,38 @@ export function App() {
               />
             ))}
           </div>
+        ) : (
+          /* Photo Wall Grid Container */
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {displayedPhotos.map((photo) => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                onOpenLightbox={(ph) => {
+                  const idx = filteredPhotos.findIndex(p => p.id === ph.id);
+                  const images = filteredPhotos.map(p => ({
+                    url: p.url,
+                    title: p.title,
+                    date: p.date
+                  }));
+                  setLightboxState({
+                    images,
+                    currentIndex: idx >= 0 ? idx : 0
+                  });
+                }}
+              />
+            ))}
+          </div>
         )}
 
         {/* Load More Button */}
-        {visibleCount < filteredPosts.length && (
+        {visibleCount < (viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length) && (
           <div className="py-8 flex justify-center">
             <button
               onClick={() => setVisibleCount(prev => prev + 24)}
               className="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-bold transition-all shadow-lg flex items-center gap-2 cursor-pointer"
             >
-              <span>加载更多文章 ({filteredPosts.length - visibleCount} 篇剩余)</span>
+              <span>加载更多 ({ (viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length) - visibleCount } 个剩余)</span>
               <ChevronDown className="w-4 h-4 text-sky-400" />
             </button>
           </div>

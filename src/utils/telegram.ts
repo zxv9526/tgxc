@@ -208,18 +208,12 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
     const imageUrls: string[] = [];
 
-    // Step 1: Specifically extract photo attachment elements in Telegram widget HTML
-    const photoWrapMatches = postContentBlock.match(/<(?:a|div|i|span)[^>]*class=["'][^"']*(?:tgme_widget_message_photo_wrap|js-message_photo|tgme_widget_message_photo|tgme_widget_message_grouped_media_wrap)[^"']*["'][^>]*>/gi) || [];
-
-    for (const wrapTag of photoWrapMatches) {
-      const bgMatch = wrapTag.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
-      let url = bgMatch ? bgMatch[1] : null;
-      if (!url) {
-        const srcMatch = wrapTag.match(/(?:src|data-src)=["']([^"']+)["']/i);
-        if (srcMatch) url = srcMatch[1];
-      }
-      if (url) {
-        url = url.trim();
+    // Extract all unique background-image URLs inside the content block
+    const allBgMatches = postContentBlock.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/gi) || [];
+    for (const bgStr of allBgMatches) {
+      const m = bgStr.match(/url\(['"]?([^'"]+?)['"]?\)/i);
+      if (m && m[1]) {
+        let url = m[1].trim();
         if (url.startsWith('//')) url = 'https:' + url;
         if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
           imageUrls.push(url);
@@ -227,17 +221,15 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
       }
     }
 
-    // Step 2: Fallback to all background-image URLs in content block if no standard photo wraps were found
-    if (imageUrls.length === 0) {
-      const allBgMatches = postContentBlock.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/gi) || [];
-      for (const bgStr of allBgMatches) {
-        const m = bgStr.match(/url\(['"]?([^'"]+?)['"]?\)/i);
-        if (m && m[1]) {
-          let url = m[1].trim();
-          if (url.startsWith('//')) url = 'https:' + url;
-          if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
-            imageUrls.push(url);
-          }
+    // Also extract any img src or data-src URLs inside the content block
+    const imgMatches = postContentBlock.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi) || [];
+    for (const imgTag of imgMatches) {
+      const srcMatch = imgTag.match(/(?:src|data-src)=["']([^"']+)["']/i);
+      if (srcMatch && srcMatch[1]) {
+        let url = srcMatch[1].trim();
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
+          imageUrls.push(url);
         }
       }
     }
