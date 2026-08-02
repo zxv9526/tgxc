@@ -21,7 +21,8 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
   onClose,
   onNavigate,
 }) => {
-  const [fallbackRawMap, setFallbackRawMap] = useState<Record<string, boolean>>({});
+  const [retryMap, setRetryMap] = useState<Record<string, number>>({});
+  const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>({});
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
@@ -42,15 +43,21 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
 
   const getImageUrl = (url: string) => {
     if (!url) return '';
-    if (fallbackRawMap[url]) return url;
     if (url.startsWith('data:') || url.includes('images.unsplash.com') || url.startsWith('/api/proxy-image')) return url;
-    if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (url.startsWith('http')) {
+      const retry = retryMap[url] || 0;
+      const buster = retry > 0 ? `&_r=${retry}` : '';
+      return `/api/proxy-image?url=${encodeURIComponent(url)}${buster}`;
+    }
     return url;
   };
 
   const handleImageError = (url: string) => {
-    if (!fallbackRawMap[url]) {
-      setFallbackRawMap(prev => ({ ...prev, [url]: true }));
+    const currentRetry = retryMap[url] || 0;
+    if (currentRetry < 2) {
+      setRetryMap(prev => ({ ...prev, [url]: currentRetry + 1 }));
+    } else {
+      setImageErrorMap(prev => ({ ...prev, [url]: true }));
     }
   };
 
@@ -131,14 +138,30 @@ export const LightboxModal: React.FC<LightboxModalProps> = ({
         className="max-w-5xl max-h-[85vh] flex flex-col items-center justify-center p-2 relative pointer-events-auto"
       >
         <div className="relative flex items-center justify-center max-h-[75vh]">
-          <img
-            key={currentImage.url}
-            src={displayUrl}
-            alt={currentImage.title || 'Telegram Photo'}
-            referrerPolicy="no-referrer"
-            onError={() => handleImageError(currentImage.url)}
-            className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-slate-800/80 transition-all duration-300"
-          />
+          {!imageErrorMap[currentImage.url] ? (
+            <img
+              key={currentImage.url}
+              src={displayUrl}
+              alt={currentImage.title || 'Telegram Photo'}
+              referrerPolicy="no-referrer"
+              onError={() => handleImageError(currentImage.url)}
+              className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-slate-800/80 transition-all duration-300"
+            />
+          ) : (
+            <div className="w-[300px] h-[240px] flex flex-col items-center justify-center bg-slate-900/60 border border-slate-800/80 rounded-2xl text-slate-500 text-xs p-4 text-center">
+              <span>图片加载失败</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setImageErrorMap(prev => ({ ...prev, [currentImage.url]: false }));
+                  setRetryMap(prev => ({ ...prev, [currentImage.url]: 0 }));
+                }}
+                className="mt-2 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition-colors cursor-pointer"
+              >
+                重新加载
+              </button>
+            </div>
+          )}
         </div>
 
         {(currentImage.title || currentImage.description || currentImage.date) && (

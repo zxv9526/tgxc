@@ -16,19 +16,23 @@ export const BlogCard: React.FC<BlogCardProps> = ({
   onSelectTag,
 }) => {
   const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>({});
-  const [fallbackRawMap, setFallbackRawMap] = useState<Record<string, boolean>>({});
+  const [retryMap, setRetryMap] = useState<Record<string, number>>({});
 
   const getImageUrl = (url: string) => {
     if (!url) return '';
-    if (fallbackRawMap[url]) return url;
     if (url.startsWith('data:') || url.includes('images.unsplash.com') || url.startsWith('/api/proxy-image')) return url;
-    if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (url.startsWith('http')) {
+      const retry = retryMap[url] || 0;
+      const buster = retry > 0 ? `&_r=${retry}` : '';
+      return `/api/proxy-image?url=${encodeURIComponent(url)}${buster}`;
+    }
     return url;
   };
 
   const handleImageError = (url: string) => {
-    if (!fallbackRawMap[url]) {
-      setFallbackRawMap(prev => ({ ...prev, [url]: true }));
+    const currentRetry = retryMap[url] || 0;
+    if (currentRetry < 2) {
+      setRetryMap(prev => ({ ...prev, [url]: currentRetry + 1 }));
     } else {
       setImageErrorMap(prev => ({ ...prev, [url]: true }));
     }

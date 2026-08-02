@@ -17,7 +17,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onNavigate,
   onOpenImage,
 }) => {
-  const [fallbackRawMap, setFallbackRawMap] = useState<Record<string, boolean>>({});
+  const [retryMap, setRetryMap] = useState<Record<string, number>>({});
+  const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>({});
 
   if (!post) return null;
 
@@ -27,15 +28,21 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   const getImageUrl = (url: string) => {
     if (!url) return '';
-    if (fallbackRawMap[url]) return url;
     if (url.startsWith('data:') || url.includes('images.unsplash.com') || url.startsWith('/api/proxy-image')) return url;
-    if (url.startsWith('http')) return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    if (url.startsWith('http')) {
+      const retry = retryMap[url] || 0;
+      const buster = retry > 0 ? `&_r=${retry}` : '';
+      return `/api/proxy-image?url=${encodeURIComponent(url)}${buster}`;
+    }
     return url;
   };
 
   const handleImageError = (url: string) => {
-    if (!fallbackRawMap[url]) {
-      setFallbackRawMap(prev => ({ ...prev, [url]: true }));
+    const currentRetry = retryMap[url] || 0;
+    if (currentRetry < 2) {
+      setRetryMap(prev => ({ ...prev, [url]: currentRetry + 1 }));
+    } else {
+      setImageErrorMap(prev => ({ ...prev, [url]: true }));
     }
   };
 
@@ -120,13 +127,29 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   onClick={() => onOpenImage(imgUrl, post.title, post.photos, idx)}
                   className="group relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 max-h-[500px] flex items-center justify-center cursor-zoom-in"
                 >
-                  <img
-                    src={getImageUrl(imgUrl)}
-                    alt={`${post.title} - ${idx + 1}`}
-                    referrerPolicy="no-referrer"
-                    onError={() => handleImageError(imgUrl)}
-                    className="w-full h-full object-contain max-h-[500px] transition-transform duration-300 group-hover:scale-[1.01]"
-                  />
+                  {!imageErrorMap[imgUrl] ? (
+                    <img
+                      src={getImageUrl(imgUrl)}
+                      alt={`${post.title} - ${idx + 1}`}
+                      referrerPolicy="no-referrer"
+                      onError={() => handleImageError(imgUrl)}
+                      className="w-full h-full object-contain max-h-[500px] transition-transform duration-300 group-hover:scale-[1.01]"
+                    />
+                  ) : (
+                    <div className="w-full py-20 flex flex-col items-center justify-center text-slate-500 text-xs text-center gap-1.5 bg-slate-900/40">
+                      <span>图片无法显示</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImageErrorMap(prev => ({ ...prev, [imgUrl]: false }));
+                          setRetryMap(prev => ({ ...prev, [imgUrl]: 0 }));
+                        }}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer"
+                      >
+                        重新加载
+                      </button>
+                    </div>
+                  )}
                   <div className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-slate-300 text-xs font-medium border border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">
                     图片 {idx + 1} / {post.photos.length} (点击放大)
                   </div>
