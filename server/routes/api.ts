@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { channelConfig, channelPhotos, getChannelPhotos, getChannelConfig } from '../storage.js';
+import { channelConfig, channelPhotos, getChannelPhotos, getChannelConfig, getLastCacheUpdateTime } from '../storage.js';
 import { syncTelegramChannel } from '../telegramFetcher.js';
 import { groupPhotosToBlogPosts } from '../../src/utils/telegram.js';
 
@@ -75,9 +75,14 @@ router.get('/photos', async (req: Request, res: Response) => {
   
   const config = getChannelConfig();
   const photos = getChannelPhotos();
-  if (photos.length === 0 && config.handle) {
+  const lastUpdate = getLastCacheUpdateTime();
+  const isStale = Date.now() - lastUpdate > 3 * 60 * 60 * 1000; // 3 hours in milliseconds
+
+  if (config.handle && (photos.length === 0 || isStale)) {
+    console.log(`[API /photos] Cache is stale or empty (last update: ${lastUpdate ? new Date(lastUpdate).toISOString() : 'Never'}). Syncing channel @${config.handle}...`);
     await syncTelegramChannel(config.handle);
   }
+
   const currentPhotos = getChannelPhotos();
   const currentConfig = getChannelConfig();
 

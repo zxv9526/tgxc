@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import apiRouter from './server/routes/api.js';
 import { loadCacheFromDisk, channelConfig } from './server/storage.js';
@@ -34,7 +35,11 @@ app.use('/api', apiRouter);
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
+  const isProduction = process.env.NODE_ENV === 'production' || 
+                       (typeof __filename !== 'undefined' && (__filename.includes('server.cjs') || __filename.includes('dist'))) || 
+                       !fs.existsSync(path.join(process.cwd(), 'server.ts'));
+
+  if (isProduction) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
 
