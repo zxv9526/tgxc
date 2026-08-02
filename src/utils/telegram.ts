@@ -110,7 +110,10 @@ function parseViews(viewsStr: string): number {
     return Math.round(parseFloat(clean.slice(0, -1)) * 1000000);
   }
   const num = parseInt(clean.replace(/\D/g, ''), 10);
-  returnexport function isJunkOrEmojiUrl(url: string): boolean {
+  return isNaN(num) ? 100 : num;
+}
+
+export function isJunkOrEmojiUrl(url: string): boolean {
   if (!url) return true;
   const lower = url.toLowerCase();
   if (lower.includes('.js') || lower.includes('.css') || lower.includes('.json') || lower.includes('.html')) return true;
@@ -238,8 +241,6 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
         }
       }
     }
-
-    if (imageUrls.length === 0) continue;}
 
     if (imageUrls.length === 0) continue;
 

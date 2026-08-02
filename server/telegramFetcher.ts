@@ -3,7 +3,7 @@ import { TelegramPhoto } from '../src/types.js';
 import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk } from './storage.js';
 
 export function getBeijingCutoffTimestamp(): number {
-  let cutoff = Date.now() - 72 * 60 * 60 * 1000;
+  let cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
   try {
     const d = new Date();
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -21,7 +21,7 @@ export function getBeijingCutoffTimestamp(): number {
       const dd = day.padStart(2, '0');
       const todayMidnight = new Date(`${year}-${mm}-${dd}T00:00:00+08:00`);
       if (!isNaN(todayMidnight.getTime())) {
-        cutoff = todayMidnight.getTime() - 3 * 24 * 60 * 60 * 1000;
+        cutoff = todayMidnight.getTime() - 365 * 24 * 60 * 60 * 1000;
       }
     }
   } catch (e) {
@@ -113,7 +113,7 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
     let mergedInfo: any = null;
     const cutoffTimestamp = getBeijingCutoffTimestamp();
 
-    for (let page = 0; page < 3; page++) {
+    for (let page = 0; page < 40; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
         : `https://t.me/s/${handle}`;
