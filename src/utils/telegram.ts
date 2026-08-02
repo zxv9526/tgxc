@@ -110,22 +110,17 @@ function parseViews(viewsStr: string): number {
     return Math.round(parseFloat(clean.slice(0, -1)) * 1000000);
   }
   const num = parseInt(clean.replace(/\D/g, ''), 10);
-  return isNaN(num) ? 120 : num;
-}
-
-export function isJunkOrEmojiUrl(url: string): boolean {
+  returnexport function isJunkOrEmojiUrl(url: string): boolean {
   if (!url) return true;
   const lower = url.toLowerCase();
   if (lower.includes('.js') || lower.includes('.css') || lower.includes('.json') || lower.includes('.html')) return true;
   if (lower.includes('telegram.org/img/emoji')) return true;
   if (lower.includes('/emoji/')) return true;
   if (lower.includes('sticker')) return true;
-  if (lower.includes('avatar')) return true;
-  if (lower.includes('userphoto') || lower.includes('user_photo')) return true;
   if (lower.includes('reaction')) return true;
   if (lower.endsWith('.svg')) return true;
 
-  const isTgCdnFile = lower.includes('telesco.pe/file/') || lower.includes('telegram-cdn.org/file/');
+  const isTgCdnFile = lower.includes('telesco.pe/file/') || lower.includes('telegram-cdn.org/file/') || lower.includes('telegram.org/file/') || lower.includes('tgstat') || lower.includes('cdn');
   const isImageExt = /\.(?:jpg|jpeg|png|webp|gif)(\?|$)/i.test(lower);
 
   if (!isTgCdnFile && !isImageExt) return true;
@@ -181,7 +176,8 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
   let avatarUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=300&auto=format&fit=crop';
   const avatarMatch = html.match(/<img class="(?:tgme_page_photo_image|tgme_channel_info_header_photo)"[^>]*src="([^"]+)"/i) ||
-                      html.match(/<img[^>]*src="([^"]+)"[^>]*class="[^"]*photo/i);
+                      html.match(/<img[^>]*src="([^"]+)"[^>]*class="[^"]*photo/i) ||
+                      html.match(/<i[^>]*class=["'][^"']*tgme_page_photo_image[^"']*["'][^>]*style=["'][^"']*background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
   if (avatarMatch && avatarMatch[1]) {
     avatarUrl = formatImageUrl(avatarMatch[1]);
   }
@@ -195,8 +191,8 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
 
   // 2. Messages Parsing
   const photos: TelegramPhoto[] = [];
-  // Split message blocks safely by message container markers
-  const messageBlocks = html.split(/class=["']tgme_widget_message[\s"']/i);
+  // Split message blocks safely by message container markers (lookahead regex ensures we don't chop tag names)
+  const messageBlocks = html.split(/(?=<div[^>]*class=["'][^"']*(?:js-widget_message|tgme_widget_message_wrap|tgme_widget_message\s))/i);
 
   for (let i = 1; i < messageBlocks.length; i++) {
     const block = messageBlocks[i];
@@ -204,12 +200,13 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
     const cleanBlock = block.replace(/&quot;/g, '"');
 
     // Strip out user photo / avatar element to avoid extracting avatar background images
-    const postContentBlock = cleanBlock.replace(/<(?:div|a)[^>]*class=["'][^"']*tgme_widget_message_userphoto[^"']*["'][^>]*>[\s\S]*?<\/(?:div|a)>/gi, '');
+    const postContentBlock = cleanBlock.replace(/<(?:div|a)[^>]*class=["'][^"']*tgme_widget_message_userphoto[^"']*["'][^>]*>[\s\S]*?<\/(?:div|a)>/gi, '')
+                                       .replace(/<div[^>]*class=["'][^"']*tgme_widget_message_userphoto[^"']*[\s\S]*?<\/div>/gi, '');
 
     const imageUrls: string[] = [];
 
     // Step 1: Specifically extract photo attachment elements in Telegram widget HTML
-    const photoWrapMatches = cleanBlock.match(/<(?:a|div)[^>]*class=["'][^"']*(?:tgme_widget_message_photo_wrap|js-message_photo|tgme_widget_message_photo|tgme_widget_message_grouped_media_wrap)[^"']*["'][^>]*>/gi) || [];
+    const photoWrapMatches = postContentBlock.match(/<(?:a|div|i|span)[^>]*class=["'][^"']*(?:tgme_widget_message_photo_wrap|js-message_photo|tgme_widget_message_photo|tgme_widget_message_grouped_media_wrap)[^"']*["'][^>]*>/gi) || [];
 
     for (const wrapTag of photoWrapMatches) {
       const bgMatch = wrapTag.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
@@ -227,14 +224,13 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
       }
     }
 
-    // Step 2: Fallback for video thumbnails or documents if no standard photo wraps were found
+    // Step 2: Fallback to all background-image URLs in content block if no standard photo wraps were found
     if (imageUrls.length === 0) {
-      const videoWrapMatches = cleanBlock.match(/<(?:a|div|i)[^>]*class=["'][^"']*(?:tgme_widget_message_videoplayer_thumb|tgme_widget_message_video_thumb|tgme_widget_message_document_thumb)[^"']*["'][^>]*>/gi) || [];
-      for (const wrapTag of videoWrapMatches) {
-        const bgMatch = wrapTag.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/i);
-        let url = bgMatch ? bgMatch[1] : null;
-        if (url) {
-          url = url.trim();
+      const allBgMatches = postContentBlock.match(/background-image\s*:\s*url\(['"]?([^'"]+?)['"]?\)/gi) || [];
+      for (const bgStr of allBgMatches) {
+        const m = bgStr.match(/url\(['"]?([^'"]+?)['"]?\)/i);
+        if (m && m[1]) {
+          let url = m[1].trim();
           if (url.startsWith('//')) url = 'https:' + url;
           if (url.startsWith('http') && !imageUrls.includes(url) && !isJunkOrEmojiUrl(url)) {
             imageUrls.push(url);
@@ -242,6 +238,8 @@ export function parseTelegramWebHtml(html: string, channelHandle: string): {
         }
       }
     }
+
+    if (imageUrls.length === 0) continue;}
 
     if (imageUrls.length === 0) continue;
 
