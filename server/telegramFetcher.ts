@@ -1,6 +1,6 @@
 import { parseTelegramWebHtml, cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 import { TelegramPhoto } from '../src/types.js';
-import { channelConfig, channelPhotos, setChannelPhotos, saveCacheToDisk } from './storage.js';
+import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk } from './storage.js';
 
 export function getBeijingCutoffTimestamp(): number {
   let cutoff = Date.now() - 72 * 60 * 60 * 1000;
@@ -72,7 +72,8 @@ export function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any
   channelConfig.handle = handle;
 
   if (newPhotos.length > 0) {
-    const existingPhotosMap = new Map(channelPhotos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url)).map(p => [p.id, p]));
+    const currentPhotos = getChannelPhotos();
+    const existingPhotosMap = new Map(currentPhotos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url)).map(p => [p.id, p]));
     
     newPhotos.forEach(p => {
       if (p && p.url && !isJunkOrEmojiUrl(p.url)) {
@@ -112,7 +113,7 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
     let mergedInfo: any = null;
     const cutoffTimestamp = getBeijingCutoffTimestamp();
 
-    for (let page = 0; page < 40; page++) {
+    for (let page = 0; page < 3; page++) {
       const targetUrl = currentBefore
         ? `https://t.me/s/${handle}?before=${currentBefore}`
         : `https://t.me/s/${handle}`;

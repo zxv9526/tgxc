@@ -188,6 +188,7 @@ export function App() {
           setSearchQuery(q);
           setVisibleCount(24);
         }}
+        onManualSync={autoSync}
       />
 
       {/* Main Container */}

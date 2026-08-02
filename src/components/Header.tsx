@@ -10,6 +10,7 @@ interface HeaderProps {
   isSyncing: boolean;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onManualSync: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing,
   searchQuery,
   onSearchChange,
+  onManualSync,
 }) => {
   return (
     <header className="bg-slate-900/90 border-b border-slate-800/80 sticky top-0 z-30 backdrop-blur-xl shadow-lg">
@@ -75,10 +77,14 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action Buttons */}
           <div className="flex items-center gap-2">
-            <div className="px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5">
+            <button
+              onClick={onManualSync}
+              disabled={isSyncing}
+              className="px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 hover:bg-slate-900 transition-colors text-slate-300 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
               <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncing ? '正在自动刷新...' : '已开启自动同步'}</span>
-            </div>
+              <span className="hidden sm:inline">{isSyncing ? '同步中...' : '立即同步'}</span>
+            </button>
           </div>
         </div>
 

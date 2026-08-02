@@ -20,6 +20,14 @@ export let channelConfig = {
 
 export let channelPhotos: TelegramPhoto[] = [];
 
+export function getChannelConfig() {
+  return channelConfig;
+}
+
+export function getChannelPhotos() {
+  return channelPhotos;
+}
+
 export function loadCacheFromDisk(): void {
   try {
     if (fs.existsSync(cacheFilePath)) {

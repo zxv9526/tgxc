@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { channelConfig, channelPhotos } from '../storage.js';
+import { channelConfig, channelPhotos, getChannelPhotos, getChannelConfig } from '../storage.js';
 import { syncTelegramChannel } from '../telegramFetcher.js';
 import { groupPhotosToBlogPosts } from '../../src/utils/telegram.js';
 
@@ -69,11 +69,19 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
 
 // Get Photos and Posts
 router.get('/photos', async (req: Request, res: Response) => {
-  if (channelPhotos.length === 0 && channelConfig.handle) {
-    await syncTelegramChannel(channelConfig.handle);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  const config = getChannelConfig();
+  const photos = getChannelPhotos();
+  if (photos.length === 0 && config.handle) {
+    await syncTelegramChannel(config.handle);
   }
+  const currentPhotos = getChannelPhotos();
+  const currentConfig = getChannelConfig();
 
-  const sorted = [...channelPhotos].sort((a, b) => {
+  const sorted = [...currentPhotos].sort((a, b) => {
     const aId = parseInt(a.messageId || '0', 10);
     const bId = parseInt(b.messageId || '0', 10);
     if (aId && bId && aId !== bId) return bId - aId;
@@ -85,23 +93,26 @@ router.get('/photos', async (req: Request, res: Response) => {
   res.json({
     photos: sorted,
     posts: posts,
-    channelName: channelConfig.channelName || `@${channelConfig.handle}`,
-    channelBio: channelConfig.channelBio,
-    avatarUrl: channelConfig.avatarUrl,
-    bannerUrl: channelConfig.bannerUrl,
-    handle: channelConfig.handle,
+    channelName: currentConfig.channelName || `@${currentConfig.handle}`,
+    channelBio: currentConfig.channelBio,
+    avatarUrl: currentConfig.avatarUrl,
+    bannerUrl: currentConfig.bannerUrl,
+    handle: currentConfig.handle,
   });
 });
 
 // Trigger sync
 router.post('/sync', async (_req: Request, res: Response) => {
-  const success = await syncTelegramChannel(channelConfig.handle);
+  const config = getChannelConfig();
+  const success = await syncTelegramChannel(config.handle);
+  const updatedPhotos = getChannelPhotos();
+  const updatedConfig = getChannelConfig();
   res.json({
     success,
-    photosCount: channelPhotos.length,
-    channelName: channelConfig.channelName,
-    avatarUrl: channelConfig.avatarUrl,
-    channelBio: channelConfig.channelBio
+    photosCount: updatedPhotos.length,
+    channelName: updatedConfig.channelName,
+    avatarUrl: updatedConfig.avatarUrl,
+    channelBio: updatedConfig.channelBio
   });
 });
 
