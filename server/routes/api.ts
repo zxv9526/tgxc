@@ -53,7 +53,7 @@ router.get('/proxy-image', async (req: Request, res: Response) => {
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
 
     if (req.query.download === '1' || req.query.download === 'true') {
       const filename = (req.query.filename as string) || `photo-${Date.now()}.jpg`;
@@ -86,6 +86,9 @@ router.get('/photos', async (req: Request, res: Response) => {
     photos: sorted,
     posts: posts,
     channelName: channelConfig.channelName || `@${channelConfig.handle}`,
+    channelBio: channelConfig.channelBio,
+    avatarUrl: channelConfig.avatarUrl,
+    bannerUrl: channelConfig.bannerUrl,
     handle: channelConfig.handle,
   });
 });
@@ -93,7 +96,13 @@ router.get('/photos', async (req: Request, res: Response) => {
 // Trigger sync
 router.post('/sync', async (_req: Request, res: Response) => {
   const success = await syncTelegramChannel(channelConfig.handle);
-  res.json({ success, photosCount: channelPhotos.length });
+  res.json({
+    success,
+    photosCount: channelPhotos.length,
+    channelName: channelConfig.channelName,
+    avatarUrl: channelConfig.avatarUrl,
+    channelBio: channelConfig.channelBio
+  });
 });
 
 export default router;

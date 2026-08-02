@@ -18,6 +18,15 @@ syncTelegramChannel(channelConfig.handle).catch(err => {
   console.error('Initial TG Sync failed:', err);
 });
 
+// Periodic background sync every 60 seconds
+setInterval(() => {
+  if (channelConfig.handle) {
+    syncTelegramChannel(channelConfig.handle).catch(err => {
+      console.error('Background TG Sync failed:', err);
+    });
+  }
+}, 60000);
+
 // Mount modular API Router
 app.use('/api', apiRouter);
 

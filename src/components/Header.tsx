@@ -4,6 +4,7 @@ import { Radio, RefreshCw, Search } from 'lucide-react';
 interface HeaderProps {
   channelName: string;
   channelHandle: string;
+  avatarUrl?: string;
   totalPosts: number;
   totalPhotos: number;
   isSyncing: boolean;
@@ -14,6 +15,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   channelName,
   channelHandle,
+  avatarUrl,
   totalPosts,
   totalPhotos,
   isSyncing,
@@ -27,8 +29,19 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-800/60">
           <div className="flex items-center gap-3.5">
             <div className="relative">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-lg shadow-lg shadow-sky-500/20 ring-2 ring-sky-500/30">
-                AM
+              <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center font-bold text-white text-lg shadow-lg shadow-sky-500/20 ring-2 ring-sky-500/30">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl.startsWith('http') ? `/api/proxy-image?url=${encodeURIComponent(avatarUrl)}` : avatarUrl}
+                    alt={channelName}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 flex items-center justify-center">
+                    AM
+                  </div>
+                )}
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-emerald-500 border-2 border-slate-900 rounded-full" title="频道实时运行中" />
             </div>

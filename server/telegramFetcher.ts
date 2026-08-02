@@ -1,6 +1,6 @@
 import { parseTelegramWebHtml, cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 import { TelegramPhoto } from '../src/types.js';
-import { channelConfig, channelPhotos, setChannelPhotos } from './storage.js';
+import { channelConfig, channelPhotos, setChannelPhotos, saveCacheToDisk } from './storage.js';
 
 export function getBeijingCutoffTimestamp(): number {
   let cutoff = Date.now() - 72 * 60 * 60 * 1000;
@@ -61,40 +61,45 @@ export function detectOlderMessages(photos: TelegramPhoto[], blockIds: number[],
 }
 
 export function mergePhotosWithCache(newPhotos: TelegramPhoto[], mergedInfo: any, handle: string): void {
-  if (newPhotos.length === 0) return;
+  if (newPhotos.length === 0 && !mergedInfo) return;
 
-  const existingPhotosMap = new Map(channelPhotos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url)).map(p => [p.id, p]));
-  newPhotos.forEach(p => {
-    if (p && p.url && !isJunkOrEmojiUrl(p.url)) {
-      existingPhotosMap.set(p.id, {
-        id: p.id,
-        title: p.title || '',
-        description: p.description || '',
-        url: p.url,
-        date: p.date,
-        timestamp: p.timestamp,
-        messageId: p.messageId
-      });
-    }
-  });
-
-  const updatedPhotos = Array.from(existingPhotosMap.values())
-    .sort((a, b) => {
-      const aId = parseInt(a.messageId || '0', 10);
-      const bId = parseInt(b.messageId || '0', 10);
-      if (aId && bId && aId !== bId) return bId - aId;
-      const aTime = a.timestamp || new Date(`${a.date}T00:00:00+08:00`).getTime();
-      const bTime = b.timestamp || new Date(`${b.date}T00:00:00+08:00`).getTime();
-      return bTime - aTime;
-    })
-    .slice(0, 1500);
-
-  if (mergedInfo && mergedInfo.channelName) {
-    channelConfig.channelName = mergedInfo.channelName;
+  if (mergedInfo) {
+    if (mergedInfo.channelName) channelConfig.channelName = mergedInfo.channelName;
+    if (mergedInfo.channelBio) channelConfig.channelBio = mergedInfo.channelBio;
+    if (mergedInfo.avatarUrl) channelConfig.avatarUrl = mergedInfo.avatarUrl;
+    if (mergedInfo.bannerUrl) channelConfig.bannerUrl = mergedInfo.bannerUrl;
   }
   channelConfig.handle = handle;
 
-  setChannelPhotos(updatedPhotos);
+  if (newPhotos.length > 0) {
+    const existingPhotosMap = new Map(channelPhotos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url)).map(p => [p.id, p]));
+    
+    newPhotos.forEach(p => {
+      if (p && p.url && !isJunkOrEmojiUrl(p.url)) {
+        const existing = existingPhotosMap.get(p.id);
+        existingPhotosMap.set(p.id, {
+          ...existing,
+          ...p,
+          url: p.url
+        });
+      }
+    });
+
+    const updatedPhotos = Array.from(existingPhotosMap.values())
+      .sort((a, b) => {
+        const aId = parseInt(a.messageId || '0', 10);
+        const bId = parseInt(b.messageId || '0', 10);
+        if (aId && bId && aId !== bId) return bId - aId;
+        const aTime = a.timestamp || (a.date ? new Date(`${a.date}T00:00:00+08:00`).getTime() : 0);
+        const bTime = b.timestamp || (b.date ? new Date(`${b.date}T00:00:00+08:00`).getTime() : 0);
+        return bTime - aTime;
+      })
+      .slice(0, 1500);
+
+    setChannelPhotos(updatedPhotos);
+  } else {
+    saveCacheToDisk();
+  }
 }
 
 export async function syncTelegramChannel(channelInput: string): Promise<boolean> {
@@ -116,6 +121,8 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         }
       });
 
@@ -124,8 +131,8 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
       const html = await res.text();
       const parsed = parseTelegramWebHtml(html, handle);
 
-      if (!mergedInfo) {
-        mergedInfo = parsed.info;
+      if (!mergedInfo || (parsed.info && parsed.info.avatarUrl && parsed.info.avatarUrl !== mergedInfo.avatarUrl)) {
+        mergedInfo = { ...mergedInfo, ...parsed.info };
       }
 
       if (parsed.photos.length > 0) {
@@ -154,7 +161,7 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    if (allParsedPhotos.length > 0) {
+    if (allParsedPhotos.length > 0 || mergedInfo) {
       mergePhotosWithCache(allParsedPhotos, mergedInfo, handle);
       return true;
     }

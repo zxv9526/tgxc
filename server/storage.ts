@@ -12,6 +12,9 @@ const initialChannelHandle = cleanChannelHandle(
 
 export let channelConfig = {
   channelName: process.env.CHANNEL_NAME || 'Telegram 频道图片',
+  channelBio: '',
+  avatarUrl: '',
+  bannerUrl: '',
   handle: initialChannelHandle
 };
 
@@ -22,7 +25,19 @@ export function loadCacheFromDisk(): void {
     if (fs.existsSync(cacheFilePath)) {
       const data = fs.readFileSync(cacheFilePath, 'utf8');
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (Array.isArray(parsed.photos)) {
+          channelPhotos = parsed.photos.filter((p: TelegramPhoto) => p && p.url && !isJunkOrEmojiUrl(p.url));
+        }
+        if (parsed.config && typeof parsed.config === 'object') {
+          channelConfig = {
+            ...channelConfig,
+            ...parsed.config,
+            handle: initialChannelHandle || parsed.config.handle || 'amlhmfzl'
+          };
+        }
+      } else if (Array.isArray(parsed) && parsed.length > 0) {
         channelPhotos = parsed.filter((p: TelegramPhoto) => p && p.url && !isJunkOrEmojiUrl(p.url));
       }
     }
@@ -50,7 +65,11 @@ export function loadCacheFromDisk(): void {
 
 export function saveCacheToDisk(): void {
   try {
-    fs.writeFileSync(cacheFilePath, JSON.stringify(channelPhotos, null, 2), 'utf8');
+    const payload = {
+      config: channelConfig,
+      photos: channelPhotos
+    };
+    fs.writeFileSync(cacheFilePath, JSON.stringify(payload, null, 2), 'utf8');
   } catch (err) {
     console.warn('[Cache Save] Failed to save cache:', err);
   }
@@ -60,3 +79,4 @@ export function setChannelPhotos(photos: TelegramPhoto[]): void {
   channelPhotos = photos.filter(p => p && p.url && !isJunkOrEmojiUrl(p.url));
   saveCacheToDisk();
 }
+

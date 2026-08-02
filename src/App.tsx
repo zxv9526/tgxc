@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BlogPost, TelegramPhoto } from './types';
 import { groupPhotosToBlogPosts } from './utils/telegram';
 import { getDefaultPhotos } from './data/default_photos';
@@ -14,7 +14,9 @@ export function App() {
   const [rawPhotos, setRawPhotos] = useState<TelegramPhoto[]>([]);
   const [channelName, setChannelName] = useState('Telegram 频道博客');
   const [channelHandle, setChannelHandle] = useState('amlhmfzl');
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const isSyncingRef = useRef(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -34,6 +36,7 @@ export function App() {
         const data = await res.json();
         if (data.handle) setChannelHandle(data.handle);
         if (data.channelName) setChannelName(data.channelName);
+        if (data.avatarUrl) setAvatarUrl(data.avatarUrl);
 
         if (data.photos && data.photos.length > 0) {
           setRawPhotos(data.photos);
@@ -61,7 +64,8 @@ export function App() {
   }, []);
 
   const autoSync = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsSyncing(true);
     try {
       await fetch('/api/sync', { method: 'POST' });
@@ -69,17 +73,19 @@ export function App() {
     } catch (err) {
       console.error('Failed to auto sync:', err);
     } finally {
+      isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [fetchData, isSyncing]);
+  }, [fetchData]);
 
   useEffect(() => {
     fetchData();
-    
-    // Set up automatic interval refresh every 60 seconds
+    autoSync();
+
+    // Set up automatic interval refresh every 30 seconds
     const interval = setInterval(() => {
       autoSync();
-    }, 60000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [fetchData, autoSync]);
@@ -173,6 +179,7 @@ export function App() {
       <Header
         channelName={channelName}
         channelHandle={channelHandle}
+        avatarUrl={avatarUrl}
         totalPosts={posts.length}
         totalPhotos={rawPhotos.length}
         isSyncing={isSyncing}
