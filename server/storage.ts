@@ -7,16 +7,17 @@ import { cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 let cacheFilePath = path.join(process.cwd(), 'channel_photos_cache.json');
 
 try {
-  // If running from compiled dist/server.cjs, __dirname will be /workspace/dist.
-  // We want to check the workspace root (one level up) first for the up-to-date cache file.
-  if (typeof __dirname !== 'undefined' && __dirname) {
-    const parentPath = path.join(__dirname, '..', 'channel_photos_cache.json');
-    if (fs.existsSync(parentPath)) {
-      cacheFilePath = parentPath;
-    } else {
-      const currentPath = path.join(__dirname, 'channel_photos_cache.json');
-      if (fs.existsSync(currentPath)) {
-        cacheFilePath = currentPath;
+  if (!fs.existsSync(cacheFilePath)) {
+    // If not found in process.cwd(), fall back to checking relative to __dirname
+    if (typeof __dirname !== 'undefined' && __dirname) {
+      const parentPath = path.join(__dirname, '..', 'channel_photos_cache.json');
+      if (fs.existsSync(parentPath)) {
+        cacheFilePath = parentPath;
+      } else {
+        const currentPath = path.join(__dirname, 'channel_photos_cache.json');
+        if (fs.existsSync(currentPath)) {
+          cacheFilePath = currentPath;
+        }
       }
     }
   }

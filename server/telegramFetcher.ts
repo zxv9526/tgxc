@@ -1,6 +1,6 @@
 import { parseTelegramWebHtml, cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 import { TelegramPhoto } from '../src/types.js';
-import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk } from './storage.js';
+import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk, getLastCacheUpdateTime } from './storage.js';
 
 export function getBeijingCutoffTimestamp(): number {
   let cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
@@ -119,91 +119,126 @@ async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 8000
   }
 }
 
+let currentSyncPromise: Promise<boolean> | null = null;
+
 export async function syncTelegramChannel(channelInput: string): Promise<boolean> {
   const handle = cleanChannelHandle(channelInput);
   if (!handle) return false;
 
-  try {
-    let currentBefore: number | null = null;
-    let allParsedPhotos: TelegramPhoto[] = [];
-    let mergedInfo: any = null;
-    const cutoffTimestamp = getBeijingCutoffTimestamp();
-
-    // If cache is already populated, only scan the first 2 pages (very fast, light, safe from Telegram rate-limits).
-    // If cache is empty, scan up to 40 pages to seed the system history.
-    const cachedPhotosCount = getChannelPhotos().length;
-    const maxPages = cachedPhotosCount > 10 ? 2 : 40;
-
-    for (let page = 0; page < maxPages; page++) {
-      const cacheBuster = `_t=${Date.now()}`;
-      const targetUrl = currentBefore
-        ? `https://t.me/s/${handle}?before=${currentBefore}&${cacheBuster}`
-        : `https://t.me/s/${handle}?${cacheBuster}`;
-
-      console.log(`[Telegram Sync] Fetching page ${page + 1}/${maxPages}: ${targetUrl}`);
-
-      const res = await fetchWithTimeout(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      }, 8000);
-
-      if (!res.ok) {
-        console.warn(`[Telegram Sync] Fetch failed with status ${res.status} for URL: ${targetUrl}`);
-        break;
-      }
-
-      const html = await res.text();
-      const parsed = parseTelegramWebHtml(html, handle);
-
-      if (!mergedInfo || (parsed.info && parsed.info.avatarUrl && parsed.info.avatarUrl !== mergedInfo.avatarUrl)) {
-        mergedInfo = { ...mergedInfo, ...parsed.info };
-      }
-
-      if (parsed.photos.length > 0) {
-        allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
-      }
-
-      const blockIds = extractMessageIds(html);
-      let minId: number | null = null;
-      if (blockIds.length > 0) {
-        const maxId = Math.max(...blockIds);
-        const validIds = blockIds.filter(id => id > maxId - 150);
-        minId = validIds.length > 0 ? Math.min(...validIds) : Math.min(...blockIds);
-      }
-
-      // Early break-out optimization: if all message IDs on this page are already in cache, stop fetching older pages
-      const currentPhotos = getChannelPhotos();
-      const existingMsgIds = new Set(currentPhotos.map(p => p.messageId).filter(Boolean));
-      const knownIdsCount = blockIds.filter(id => existingMsgIds.has(String(id))).length;
-      if (blockIds.length > 0 && knownIdsCount === blockIds.length && page >= 1) {
-        console.log(`[Telegram Sync] Stop early on page ${page + 1}: All ${knownIdsCount} messages on this page already exist in cache.`);
-        break;
-      }
-
-      const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, cutoffTimestamp);
-
-      if (minId !== null) {
-        if (currentBefore !== null && minId >= currentBefore) break;
-        currentBefore = minId;
-      } else {
-        break;
-      }
-
-      if (pageHasOlderMessages && page >= 3) break;
-
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-
-    if (allParsedPhotos.length > 0 || mergedInfo) {
-      mergePhotosWithCache(allParsedPhotos, mergedInfo, handle);
-      return true;
-    }
-  } catch (err) {
-    console.error(`[Telegram Sync] Error syncing @${handle}:`, err);
+  if (currentSyncPromise) {
+    console.log(`[Telegram Sync] Sync already in progress for @${handle}. Awaiting existing sync...`);
+    return currentSyncPromise;
   }
-  return false;
+
+  const runSync = async (): Promise<boolean> => {
+    try {
+      let currentBefore: number | null = null;
+      let allParsedPhotos: TelegramPhoto[] = [];
+      let mergedInfo: any = null;
+      const cutoffTimestamp = getBeijingCutoffTimestamp();
+
+      // If cache is empty, scan up to 40 pages to seed history.
+      // If cache is stale, adapt page scans based on last updated age to fill gaps efficiently:
+      // - Older than 24h: scan 15 pages
+      // - Older than 3h: scan 8 pages
+      // - Older than 5m: scan 3 pages
+      // - Else: scan 2 pages (light refresh)
+      const cachedPhotosCount = getChannelPhotos().length;
+      let maxPages = 2;
+      
+      if (cachedPhotosCount === 0) {
+        maxPages = 40;
+      } else {
+        const lastUpdate = getLastCacheUpdateTime();
+        const ageMs = Date.now() - lastUpdate;
+        if (ageMs > 24 * 60 * 60 * 1000) {
+          maxPages = 15;
+        } else if (ageMs > 3 * 60 * 60 * 1000) {
+          maxPages = 8;
+        } else if (ageMs > 5 * 60 * 1000) {
+          maxPages = 3;
+        }
+      }
+
+      console.log(`[Telegram Sync] Starting sync for @${handle}. Cache count: ${cachedPhotosCount}, max pages to scan: ${maxPages}`);
+
+      for (let page = 0; page < maxPages; page++) {
+        const cacheBuster = `_t=${Date.now()}`;
+        const targetUrl = currentBefore
+          ? `https://t.me/s/${handle}?before=${currentBefore}&${cacheBuster}`
+          : `https://t.me/s/${handle}?${cacheBuster}`;
+
+        console.log(`[Telegram Sync] Fetching page ${page + 1}/${maxPages}: ${targetUrl}`);
+
+        const res = await fetchWithTimeout(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        }, 8000);
+
+        if (!res.ok) {
+          console.warn(`[Telegram Sync] Fetch failed with status ${res.status} for URL: ${targetUrl}`);
+          break;
+        }
+
+        const html = await res.text();
+        const parsed = parseTelegramWebHtml(html, handle);
+
+        if (!mergedInfo || (parsed.info && parsed.info.avatarUrl && parsed.info.avatarUrl !== mergedInfo.avatarUrl)) {
+          mergedInfo = { ...mergedInfo, ...parsed.info };
+        }
+
+        if (parsed.photos.length > 0) {
+          allParsedPhotos = [...allParsedPhotos, ...parsed.photos];
+        }
+
+        const blockIds = extractMessageIds(html);
+        let minId: number | null = null;
+        if (blockIds.length > 0) {
+          const maxId = Math.max(...blockIds);
+          const validIds = blockIds.filter(id => id > maxId - 150);
+          minId = validIds.length > 0 ? Math.min(...validIds) : Math.min(...blockIds);
+        }
+
+        // Early break-out optimization: if all message IDs on this page are already in cache, stop fetching older pages
+        const currentPhotos = getChannelPhotos();
+        const existingMsgIds = new Set(currentPhotos.map(p => p.messageId).filter(Boolean));
+        const knownIdsCount = blockIds.filter(id => existingMsgIds.has(String(id))).length;
+        if (blockIds.length > 0 && knownIdsCount === blockIds.length && page >= 1) {
+          console.log(`[Telegram Sync] Stop early on page ${page + 1}: All ${knownIdsCount} messages on this page already exist in cache.`);
+          break;
+        }
+
+        const pageHasOlderMessages = detectOlderMessages(parsed.photos, blockIds, cutoffTimestamp);
+
+        if (minId !== null) {
+          if (currentBefore !== null && minId >= currentBefore) break;
+          currentBefore = minId;
+        } else {
+          break;
+        }
+
+        if (pageHasOlderMessages && page >= 3) break;
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      if (allParsedPhotos.length > 0 || mergedInfo) {
+        mergePhotosWithCache(allParsedPhotos, mergedInfo, handle);
+        return true;
+      }
+    } catch (err) {
+      console.error(`[Telegram Sync] Error syncing @${handle}:`, err);
+    }
+    return false;
+  };
+
+  currentSyncPromise = runSync().finally(() => {
+    currentSyncPromise = null;
+  });
+
+  return currentSyncPromise;
 }
