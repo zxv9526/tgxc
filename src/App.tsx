@@ -33,7 +33,7 @@ export function App() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/photos');
+      const res = await fetch(`/api/photos?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         if (data.handle) setChannelHandle(data.handle);
