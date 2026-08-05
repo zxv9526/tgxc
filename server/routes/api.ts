@@ -145,7 +145,7 @@ router.get('/photos', async (req: Request, res: Response) => {
   const config = getChannelConfig();
   const photos = getChannelPhotos();
   const lastUpdate = getLastCacheUpdateTime();
-  const isStale = Date.now() - lastUpdate > 15 * 1000; // 15 seconds in milliseconds
+  const isStale = Date.now() - lastUpdate > 60 * 1000; // 60 seconds in milliseconds
 
   if (config.handle) {
     if (photos.length === 0 || isStale) {

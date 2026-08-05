@@ -117,3 +117,8 @@ export function setChannelPhotos(photos: TelegramPhoto[]): void {
   saveCacheToDisk();
 }
 
+export function touchCacheUpdateTime(): void {
+  lastCacheUpdateTime = Date.now();
+  saveCacheToDisk();
+}
+

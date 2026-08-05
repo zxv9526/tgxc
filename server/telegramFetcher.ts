@@ -1,6 +1,6 @@
 import { parseTelegramWebHtml, cleanChannelHandle, isJunkOrEmojiUrl } from '../src/utils/telegram.js';
 import { TelegramPhoto } from '../src/types.js';
-import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk, getLastCacheUpdateTime } from './storage.js';
+import { channelConfig, getChannelPhotos, setChannelPhotos, saveCacheToDisk, getLastCacheUpdateTime, touchCacheUpdateTime } from './storage.js';
 
 export function getBeijingCutoffTimestamp(): number {
   let cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
@@ -228,6 +228,9 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
 
       if (allParsedPhotos.length > 0 || mergedInfo) {
         mergePhotosWithCache(allParsedPhotos, mergedInfo, handle);
+        return true;
+      } else {
+        touchCacheUpdateTime();
         return true;
       }
     } catch (err) {

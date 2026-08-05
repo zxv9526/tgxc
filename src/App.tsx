@@ -16,6 +16,7 @@ export function App() {
   const [channelName, setChannelName] = useState('Telegram 频道博客');
   const [channelHandle, setChannelHandle] = useState('amlhmfzl');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const isSyncingRef = useRef(false);
 
@@ -62,6 +63,8 @@ export function App() {
       const defaults = getDefaultPhotos();
       setRawPhotos(defaults);
       setPosts(groupPhotosToBlogPosts(defaults));
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -294,8 +297,42 @@ export function App() {
           </div>
         )}
 
-        {/* Empty State */}
-        {(viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length) === 0 ? (
+        {/* Loading / Skeleton State or Data View */}
+        {isLoading ? (
+          viewMode === 'blog' ? (
+            /* Blog Card Skeletons */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-slate-900/40 border border-slate-800/60 rounded-3xl p-5 space-y-4 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-800" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-4 bg-slate-800 rounded w-1/3" />
+                      <div className="h-3 bg-slate-800 rounded w-1/4" />
+                    </div>
+                  </div>
+                  <div className="h-6 bg-slate-800 rounded w-3/4 mt-4" />
+                  <div className="h-[240px] bg-slate-800 rounded-2xl w-full" />
+                  <div className="h-4 bg-slate-800 rounded w-full" />
+                  <div className="h-4 bg-slate-800 rounded w-5/6" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Photo Card Skeletons */
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <div key={i} className="bg-slate-900/40 border border-slate-800/60 rounded-2xl p-1 h-[380px] flex flex-col space-y-3 animate-pulse">
+                  <div className="bg-slate-800 rounded-xl w-full h-[280px]" />
+                  <div className="px-2 space-y-2 flex-1 animate-pulse">
+                    <div className="h-4 bg-slate-800 rounded w-2/3" />
+                    <div className="h-3 bg-slate-800 rounded w-1/3" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : (viewMode === 'blog' ? filteredPosts.length : filteredPhotos.length) === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-center gap-3 bg-slate-900/40 border border-slate-900 rounded-3xl p-8">
             <SearchX className="w-10 h-10 text-slate-600 mb-1" />
             <p className="text-sm font-bold text-slate-300">没有找到相关项目</p>
