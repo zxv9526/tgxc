@@ -137,27 +137,12 @@ export async function syncTelegramChannel(channelInput: string): Promise<boolean
       let mergedInfo: any = null;
       const cutoffTimestamp = getBeijingCutoffTimestamp();
 
-      // If cache is empty, scan up to 40 pages to seed history.
-      // If cache is stale, adapt page scans based on last updated age to fill gaps efficiently:
-      // - Older than 24h: scan 15 pages
-      // - Older than 3h: scan 8 pages
-      // - Older than 5m: scan 3 pages
-      // - Else: scan 2 pages (light refresh)
+      // If cache is empty, scan up to 30 pages to seed history.
+      // If cache is populated, scan up to 3 pages to capture all new messages quickly (~1 second).
       const cachedPhotosCount = getChannelPhotos().length;
-      let maxPages = 2;
-      
+      let maxPages = 3;
       if (cachedPhotosCount === 0) {
-        maxPages = 40;
-      } else {
-        const lastUpdate = getLastCacheUpdateTime();
-        const ageMs = Date.now() - lastUpdate;
-        if (ageMs > 24 * 60 * 60 * 1000) {
-          maxPages = 15;
-        } else if (ageMs > 3 * 60 * 60 * 1000) {
-          maxPages = 8;
-        } else if (ageMs > 5 * 60 * 1000) {
-          maxPages = 3;
-        }
+        maxPages = 30;
       }
 
       console.log(`[Telegram Sync] Starting sync for @${handle}. Cache count: ${cachedPhotosCount}, max pages to scan: ${maxPages}`);

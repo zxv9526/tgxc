@@ -145,12 +145,17 @@ router.get('/photos', async (req: Request, res: Response) => {
   const config = getChannelConfig();
   const photos = getChannelPhotos();
   const lastUpdate = getLastCacheUpdateTime();
-  const isStale = Date.now() - lastUpdate > 60 * 1000; // 60 seconds in milliseconds
+  const isStale = lastUpdate === 0 || (Date.now() - lastUpdate > 30 * 1000); // 30 seconds in milliseconds
 
   if (config.handle) {
-    if (photos.length === 0 || isStale) {
-      console.log(`[API /photos] Cache is empty or stale (last update: ${lastUpdate ? new Date(lastUpdate).toISOString() : 'Never'}). Synchronously syncing channel @${config.handle}...`);
+    if (photos.length === 0) {
+      console.log(`[API /photos] Cache is empty. Synchronously syncing channel @${config.handle}...`);
       await syncTelegramChannel(config.handle);
+    } else if (isStale) {
+      console.log(`[API /photos] Cache is stale (last update: ${lastUpdate ? new Date(lastUpdate).toISOString() : 'Never'}). Triggering non-blocking background sync...`);
+      syncTelegramChannel(config.handle).catch(err => {
+        console.error('[API /photos] Background sync error:', err);
+      });
     }
   }
 

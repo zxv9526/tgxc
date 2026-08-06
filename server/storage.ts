@@ -61,6 +61,8 @@ export function loadCacheFromDisk(): void {
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         if (typeof parsed.lastUpdated === 'number') {
           lastCacheUpdateTime = parsed.lastUpdated;
+        } else {
+          lastCacheUpdateTime = Date.now();
         }
         if (Array.isArray(parsed.photos)) {
           channelPhotos = parsed.photos.filter((p: TelegramPhoto) => p && p.url && !isJunkOrEmojiUrl(p.url));
